@@ -1,0 +1,110 @@
+XboxControllerPatch macOS Installation Guide
+===========================================
+
+Project:
+- Repository: https://github.com/hereisderek/XboxControllerPatch-Xbox360MacProfile-BepInExPatch
+- Releases: https://github.com/hereisderek/XboxControllerPatch-Xbox360MacProfile-BepInExPatch/releases
+- Maintainer: Derek
+
+Purpose:
+This patch extends Xbox controller name matching in Overcooked! 2 by installing
+XboxControllerPatch.dll as a BepInEx preloader patcher.
+
+Requirements
+------------
+1. macOS
+2. Overcooked! 2 installed
+3. Steam game folder access
+4. BepInEx 5 (latest) for Mono/Unity games
+
+Part 1: Install Latest BepInEx
+------------------------------
+1. Open the official BepInEx releases page:
+   https://github.com/BepInEx/BepInEx/releases/latest
+
+2. Download the latest package suitable for Unity Mono on macOS.
+   Usually BepInEx_macos_universal_[version].zip.
+
+3. Locate your Overcooked! 2 game directory. Example:
+   ${HOME}/Library/Application\ Support/Steam/steamapps/common/Overcooked! 2
+
+4. Extract the BepInEx archive into the game directory so this exists:
+   <GameDir>/BepInEx
+
+5. Confirm these paths exist after extraction:
+   <GameDir>/BepInEx/core
+   <GameDir>/BepInEx/patchers
+   <GameDir>/run_bepinex.sh
+
+Part 2: Install XboxControllerPatch
+-----------------------------------
+Option A (recommended): Use the repo Release package
+1. Open releases:
+   https://github.com/hereisderek/XboxControllerPatch-Xbox360MacProfile-BepInExPatch/releases
+
+2. Download the latest MacOSXboxControllerPatch package from release assets.
+
+3. Extract it. You should have:
+   MacOSXboxControllerPatch/
+   - XboxControllerPatch.dll
+   - INSTALL.txt
+
+4. Copy the DLL to:
+   <GameDir>/BepInEx/patchers/XboxControllerPatch.dll
+
+Option B: Build from source
+1. Clone the repository:
+   https://github.com/hereisderek/XboxControllerPatch-Xbox360MacProfile-BepInExPatch
+
+2. Follow README build instructions, then copy:
+   XboxControllerPatch/bin/Release/net46/XboxControllerPatch.dll
+   to
+   <GameDir>/BepInEx/patchers/
+
+Part 3: Enable Console Logging
+------------------------------
+1. Edit:
+   <GameDir>/BepInEx/config/BepInEx.cfg
+
+2. Ensure this section is enabled:
+   [Logging.Console]
+   Enabled=true
+
+Part 4: Run and Verify
+----------------------
+1. Start the game through BepInEx launcher:
+   cd <GameDir>
+   ./run_bepinex.sh Overcooked2.app
+
+2. Confirm logs include these lines:
+   [XboxPatch] Found Xbox360MacProfile
+   [XboxPatch] Found JoystickNames array
+   [XboxPatch] Added controller names
+   [XboxPatch] Patch completed
+
+If these lines appear, the patch loaded correctly.
+
+Troubleshooting
+---------------
+1. Error mentions netstandard assembly missing:
+   - Make sure you are using the net46 build from releases.
+   - Replace old patch DLL in <GameDir>/BepInEx/patchers/.
+
+2. Patcher not loading:
+   - Verify exact file name: XboxControllerPatch.dll
+   - Verify location: <GameDir>/BepInEx/patchers/
+
+3. No BepInEx logs:
+   - Confirm you launch with run_bepinex.sh, not the app directly.
+
+Uninstall
+---------
+1. Remove:
+   <GameDir>/BepInEx/patchers/XboxControllerPatch.dll
+
+2. Relaunch game with run_bepinex.sh.
+
+Reference
+---------
+Inspiration/reference implementation:
+https://github.com/fr-eed/macos-incontrol-controller-patch

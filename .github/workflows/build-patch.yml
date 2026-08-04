@@ -82,11 +82,24 @@ jobs:
       - name: Build (Release)
         run: dotnet build XboxControllerPatch/XboxControllerPatch.csproj -c Release --nologo
 
-      - name: Upload patch artifact
+      - name: Package macOS patch bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PACKAGE_DIR="$RUNNER_TEMP/MacOSXboxControllerPatch"
+          mkdir -p "$PACKAGE_DIR"
+
+          cp "XboxControllerPatch/bin/Release/net46/XboxControllerPatch.dll" "$PACKAGE_DIR/"
+          cp "INSTALL.txt" "$PACKAGE_DIR/"
+
+          cd "$RUNNER_TEMP"
+          zip -r "MacOSXboxControllerPatch.zip" "MacOSXboxControllerPatch"
+
+      - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: XboxControllerPatch
+          name: MacOSXboxControllerPatch
           path: |
-            XboxControllerPatch/bin/Release/net46/XboxControllerPatch.dll
-            XboxControllerPatch/bin/Release/net46/XboxControllerPatch.pdb
+            ${{ runner.temp }}/MacOSXboxControllerPatch.zip
           if-no-files-found: error
