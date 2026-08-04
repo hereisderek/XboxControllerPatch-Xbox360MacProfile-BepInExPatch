@@ -1,0 +1,14 @@
+# .NET build outputs
+XboxControllerPatch/bin/
+XboxControllerPatch/obj/
+
+# Local dotnet CLI home used during sandboxed builds
+XboxControllerPatch/.dotnet-home/
+
+# Runtime dependency binaries copied from game/BepInEx core
+XboxControllerPatch/lib/*.dll
+
+# macOS
+.DS_Store
+Overcooked2.app
+XboxControllerPatch/Library
