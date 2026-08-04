@@ -1,0 +1,92 @@
+name: Build XboxControllerPatch
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download BepInEx core dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT_DIR="XboxControllerPatch"
+          LIB_DIR="$PROJECT_DIR/lib"
+          mkdir -p "$LIB_DIR"
+
+          # Skip download if all required files already exist.
+          required=("BepInEx.dll" "BepInEx.Preloader.dll" "Mono.Cecil.dll" "0Harmony.dll")
+          missing=0
+          for f in "${required[@]}"; do
+            if [[ ! -f "$LIB_DIR/$f" ]]; then
+              missing=1
+            fi
+          done
+
+          if [[ "$missing" -eq 0 ]]; then
+            echo "All required dependencies already present in $LIB_DIR"
+            exit 0
+          fi
+
+          api_url="https://api.github.com/repos/BepInEx/BepInEx/releases/latest"
+          asset_url=$(curl -fsSL "$api_url" | jq -r '.assets[] | select(.name | test("BepInEx_unix_.*\\.zip$")) | .browser_download_url' | head -n 1)
+
+          if [[ -z "$asset_url" || "$asset_url" == "null" ]]; then
+            asset_url=$(curl -fsSL "$api_url" | jq -r '.assets[] | select(.name | test("BepInEx_x64_.*\\.zip$")) | .browser_download_url' | head -n 1)
+          fi
+
+          if [[ -z "$asset_url" || "$asset_url" == "null" ]]; then
+            echo "Could not find a suitable BepInEx release asset from $api_url"
+            exit 1
+          fi
+
+          echo "Downloading BepInEx asset: $asset_url"
+          tmp_zip="$RUNNER_TEMP/bepinex.zip"
+          extract_dir="$RUNNER_TEMP/bepinex"
+          mkdir -p "$extract_dir"
+          curl -fL "$asset_url" -o "$tmp_zip"
+          unzip -q "$tmp_zip" -d "$extract_dir"
+
+          core_dll=$(find "$extract_dir" -type f -path '*/BepInEx/core/BepInEx.dll' | head -n 1)
+          if [[ -z "$core_dll" ]]; then
+            echo "Could not locate BepInEx/core/BepInEx.dll in extracted archive"
+            exit 1
+          fi
+
+          core_dir=$(dirname "$core_dll")
+          cp "$core_dir/BepInEx.dll" "$LIB_DIR/"
+          cp "$core_dir/BepInEx.Preloader.dll" "$LIB_DIR/"
+          cp "$core_dir/Mono.Cecil.dll" "$LIB_DIR/"
+          cp "$core_dir/0Harmony.dll" "$LIB_DIR/"
+
+          echo "Downloaded and copied BepInEx core dependencies to $LIB_DIR"
+
+      - name: Build (Release)
+        run: dotnet build XboxControllerPatch/XboxControllerPatch.csproj -c Release --nologo
+
+      - name: Upload patch artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XboxControllerPatch
+          path: |
+            XboxControllerPatch/bin/Release/net46/XboxControllerPatch.dll
+            XboxControllerPatch/bin/Release/net46/XboxControllerPatch.pdb
+          if-no-files-found: error
