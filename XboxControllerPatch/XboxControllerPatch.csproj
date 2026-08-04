@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net46</TargetFramework>
-    <AssemblyName>XboxControllerPatch</AssemblyName>
+    <AssemblyName>MacOSXboxControllerPatch</AssemblyName>
     <Nullable>disable</Nullable>
   </PropertyGroup>
 

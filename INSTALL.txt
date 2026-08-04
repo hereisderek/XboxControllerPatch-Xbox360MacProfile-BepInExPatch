@@ -8,7 +8,7 @@ Project:
 
 Purpose:
 This patch extends Xbox controller name matching in Overcooked! 2 by installing
-XboxControllerPatch.dll as a BepInEx preloader patcher.
+MacOSXboxControllerPatch.dll as a BepInEx preloader patcher.
 
 Requirements
 ------------
@@ -46,18 +46,18 @@ Option A (recommended): Use the repo Release package
 
 3. Extract it. You should have:
    MacOSXboxControllerPatch/
-   - XboxControllerPatch.dll
+   - MacOSXboxControllerPatch.dll
    - INSTALL.txt
 
 4. Copy the DLL to:
-   <GameDir>/BepInEx/patchers/XboxControllerPatch.dll
+   <GameDir>/BepInEx/patchers/MacOSXboxControllerPatch.dll
 
 Option B: Build from source
 1. Clone the repository:
    https://github.com/hereisderek/XboxControllerPatch-Xbox360MacProfile-BepInExPatch
 
 2. Follow README build instructions, then copy:
-   XboxControllerPatch/bin/Release/net46/XboxControllerPatch.dll
+   XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatch.dll
    to
    <GameDir>/BepInEx/patchers/
 
@@ -91,7 +91,7 @@ Troubleshooting
    - Replace old patch DLL in <GameDir>/BepInEx/patchers/.
 
 2. Patcher not loading:
-   - Verify exact file name: XboxControllerPatch.dll
+   - Verify exact file name: MacOSXboxControllerPatch.dll
    - Verify location: <GameDir>/BepInEx/patchers/
 
 3. No BepInEx logs:
@@ -100,7 +100,7 @@ Troubleshooting
 Uninstall
 ---------
 1. Remove:
-   <GameDir>/BepInEx/patchers/XboxControllerPatch.dll
+   <GameDir>/BepInEx/patchers/MacOSXboxControllerPatch.dll
 
 2. Relaunch game with run_bepinex.sh.
 

@@ -5,10 +5,12 @@ on:
     branches:
       - develop
       - main
+    tags:
+      - release_*
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -17,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -47,10 +51,18 @@ jobs:
           fi
 
           api_url="https://api.github.com/repos/BepInEx/BepInEx/releases/latest"
-          asset_url=$(curl -fsSL "$api_url" | jq -r '.assets[] | select(.name | test("BepInEx_unix_.*\\.zip$")) | .browser_download_url' | head -n 1)
+          release_json="$RUNNER_TEMP/bepinex-release.json"
+          curl -fsSL "$api_url" -o "$release_json"
+
+          # Prefer macOS/Unix packages first, then linux x64, then any BepInEx zip.
+          asset_url=$(jq -r '.assets[] | select(.name | test("BepInEx_(macos|unix).*\\.zip$"; "i")) | .browser_download_url' "$release_json" | head -n 1)
 
           if [[ -z "$asset_url" || "$asset_url" == "null" ]]; then
-            asset_url=$(curl -fsSL "$api_url" | jq -r '.assets[] | select(.name | test("BepInEx_x64_.*\\.zip$")) | .browser_download_url' | head -n 1)
+            asset_url=$(jq -r '.assets[] | select(.name | test("BepInEx_linux_x64_.*\\.zip$"; "i")) | .browser_download_url' "$release_json" | head -n 1)
+          fi
+
+          if [[ -z "$asset_url" || "$asset_url" == "null" ]]; then
+            asset_url=$(jq -r '.assets[] | select(.name | test("BepInEx_.*\\.zip$"; "i") and (.name | test("patcher"; "i") | not)) | .browser_download_url' "$release_json" | head -n 1)
           fi
 
           if [[ -z "$asset_url" || "$asset_url" == "null" ]]; then
@@ -87,14 +99,40 @@ jobs:
         run: |
           set -euo pipefail
 
-          PACKAGE_DIR="$RUNNER_TEMP/MacOSXboxControllerPatch"
+          PACKAGE_NAME="MacOSXboxControllerPatch"
+          PACKAGE_DIR="$RUNNER_TEMP/$PACKAGE_NAME"
           mkdir -p "$PACKAGE_DIR"
 
-          cp "XboxControllerPatch/bin/Release/net46/XboxControllerPatch.dll" "$PACKAGE_DIR/"
+          cp "XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatch.dll" "$PACKAGE_DIR/"
           cp "INSTALL.txt" "$PACKAGE_DIR/"
 
           cd "$RUNNER_TEMP"
-          zip -r "MacOSXboxControllerPatch.zip" "MacOSXboxControllerPatch"
+          zip -r "$PACKAGE_NAME.zip" "$PACKAGE_NAME"
+
+      - name: Check tag commit is on main
+        id: tag_on_main
+        if: startsWith(github.ref, 'refs/tags/release_') || startsWith(github.ref, 'refs/tags/realease_')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          if git branch -r --contains "$GITHUB_SHA" | grep -q 'origin/main'; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Tag commit is on main; release publish enabled."
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Tag commit is not on main; release publish skipped."
+          fi
+
+      - name: Publish GitHub release asset
+        if: (startsWith(github.ref, 'refs/tags/release_') || startsWith(github.ref, 'refs/tags/realease_')) && steps.tag_on_main.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            ${{ runner.temp }}/MacOSXboxControllerPatch.zip
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4

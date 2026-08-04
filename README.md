@@ -27,7 +27,7 @@ cp "<GameDir>/BepInEx/core/0Harmony.dll" lib/
 dotnet build -c Release
 
 # 5) Install patcher into BepInEx patchers folder
-cp bin/Release/net46/XboxControllerPatch.dll \
+cp bin/Release/net46/MacOSXboxControllerPatch.dll \
   "<GameDir>/BepInEx/patchers/"
 
 # 6) Run game via BepInEx launcher
@@ -89,7 +89,7 @@ XboxControllerPatch/
     │   └── 0Harmony.dll
     └── bin/
       └── Release/net46/
-            └── XboxControllerPatch.dll
+            └── MacOSXboxControllerPatch.dll
 ```
 
 ## Prerequisites
@@ -159,7 +159,7 @@ dotnet build -c Release
 Expected output:
 
 ```text
-XboxControllerPatch/bin/Release/net46/XboxControllerPatch.dll
+XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatch.dll
 ```
 
 ## Install
@@ -167,14 +167,14 @@ XboxControllerPatch/bin/Release/net46/XboxControllerPatch.dll
 Copy built patcher into game patchers folder:
 
 ```bash
-cp XboxControllerPatch/bin/Release/net46/XboxControllerPatch.dll \
+cp XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatch.dll \
   "<GameDir>/BepInEx/patchers/"
 ```
 
 Installed result:
 
 ```text
-<GameDir>/BepInEx/patchers/XboxControllerPatch.dll
+<GameDir>/BepInEx/patchers/MacOSXboxControllerPatch.dll
 ```
 
 ## Enable Logging
@@ -235,7 +235,7 @@ Check logs for lines like:
 
 ### Patcher not loaded
 
-- Verify DLL path is exactly `<GameDir>/BepInEx/patchers/XboxControllerPatch.dll`.
+- Verify DLL path is exactly `<GameDir>/BepInEx/patchers/MacOSXboxControllerPatch.dll`.
 - Confirm BepInEx preloader is active and no startup errors in BepInEx logs.
 
 ## Development Notes
