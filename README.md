@@ -189,7 +189,7 @@ above never sets it, so the check compiles out entirely and has no effect - noth
 behavior to work around.
 
 * Plain `dotnet build -c Release` (patch/README's own documented steps, no special flags) → patch applies fully standalone, zero ticket check, zero [License] log lines, no OC2XBOXPATCH_TICKET needed at all.
-* `dotnet build -c Release -p:RequireLicenseTicket=true` (only ever passed by this repo's build-template.sh --build-patch) → same source, but now correctly refuses to patch without a valid ticket.
+* `dotnet build -c Release -p:RequireLicenseTicket=true` (only ever passed by this repo's build.sh --build-patch) → same source, but now correctly refuses to patch without a valid ticket.
 
 ## Install
 
