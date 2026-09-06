@@ -12,16 +12,18 @@ Use this one-pass setup to build and install the patcher:
 # 1) Go to repository root
 cd /path/to/XboxControllerPatch
 
-# 2) Ensure BepInEx is installed in your Overcooked! 2 game directory.
-#    Download from: https://github.com/bepinex/bepinex
+# 2) Download the latest BepInEx release (no game-directory install needed to compile)
+curl -L -o /tmp/bepinex.zip "$(curl -s https://api.github.com/repos/BepInEx/BepInEx/releases/latest \
+  | grep -o '"browser_download_url": *"[^"]*macos[^"]*"' | head -1 | cut -d'"' -f4)"
+mkdir -p /tmp/bepinex && unzip -o /tmp/bepinex.zip -d /tmp/bepinex
 
-# 3) Copy runtime-matched dependencies from game BepInEx/core to this project
+# 3) Copy dependencies from the downloaded BepInEx into this project
 cd XboxControllerPatch
 mkdir -p lib
-cp "<GameDir>/BepInEx/core/BepInEx.dll" lib/
-cp "<GameDir>/BepInEx/core/BepInEx.Preloader.dll" lib/
-cp "<GameDir>/BepInEx/core/Mono.Cecil.dll" lib/
-cp "<GameDir>/BepInEx/core/0Harmony.dll" lib/
+cp /tmp/bepinex/BepInEx/core/BepInEx.dll lib/
+cp /tmp/bepinex/BepInEx/core/BepInEx.Preloader.dll lib/
+cp /tmp/bepinex/BepInEx/core/Mono.Cecil.dll lib/
+cp /tmp/bepinex/BepInEx/core/0Harmony.dll lib/
 
 # 4) Build
 dotnet build -c Release
@@ -96,8 +98,11 @@ XboxControllerPatch/
 
 - macOS
 - Overcooked! 2 installed
-- BepInEx already installed in the game directory
 - .NET SDK (8+ works; project target is net46)
+
+Building does not require BepInEx to be installed in the game directory — the latest
+BepInEx release is downloaded directly for build-time dependencies (see Dependency Setup).
+BepInEx is only needed in the game directory at runtime, to load the built patcher.
 
 Check .NET:
 
@@ -119,25 +124,33 @@ dotnet --version
 
 ## Dependency Setup
 
-Copy runtime-matching dependencies from game BepInEx core into project `lib/`:
+Download the latest BepInEx release and copy its core dependencies into project `lib/`.
+This does not require BepInEx to be installed in any game directory:
 
 ```bash
+curl -L -o /tmp/bepinex.zip "$(curl -s https://api.github.com/repos/BepInEx/BepInEx/releases/latest \
+  | grep -o '"browser_download_url": *"[^"]*macos[^"]*"' | head -1 | cut -d'"' -f4)"
+mkdir -p /tmp/bepinex && unzip -o /tmp/bepinex.zip -d /tmp/bepinex
+
 cd XboxControllerPatch/XboxControllerPatch
 mkdir -p lib
 
-cp "<GameDir>/BepInEx/core/BepInEx.dll" lib/
-cp "<GameDir>/BepInEx/core/BepInEx.Preloader.dll" lib/
-cp "<GameDir>/BepInEx/core/Mono.Cecil.dll" lib/
-cp "<GameDir>/BepInEx/core/0Harmony.dll" lib/
+cp /tmp/bepinex/BepInEx/core/BepInEx.dll lib/
+cp /tmp/bepinex/BepInEx/core/BepInEx.Preloader.dll lib/
+cp /tmp/bepinex/BepInEx/core/Mono.Cecil.dll lib/
+cp /tmp/bepinex/BepInEx/core/0Harmony.dll lib/
 ```
 
-Why copy from game core instead of NuGet:
+Why download the latest release instead of using NuGet or a game-installed copy:
 
-- Prevents version mismatch with the exact BepInEx runtime loading the patcher.
+- NuGet packages for BepInEx are not kept in lockstep with upstream releases.
+- Building against the latest release keeps `lib/` independent of any particular
+  game install, while still matching the BepInEx runtime that will load the patcher
+  at install time.
 
 Get BepInEx binaries from:
 
-- https://github.com/bepinex/bepinex
+- https://github.com/BepInEx/BepInEx/releases/latest
 
 ## Binary Files and Git
 
@@ -174,6 +187,9 @@ DLL behind a short-lived, machine-bound ticket only that launcher can issue. It'
 `-p:RequireLicenseTicket=true` (see the `Condition` in `XboxControllerPatch.csproj`). The plain build
 above never sets it, so the check compiles out entirely and has no effect - nothing to remove, no
 behavior to work around.
+
+* Plain `dotnet build -c Release` (patch/README's own documented steps, no special flags) → patch applies fully standalone, zero ticket check, zero [License] log lines, no OC2XBOXPATCH_TICKET needed at all.
+* `dotnet build -c Release -p:RequireLicenseTicket=true` (only ever passed by this repo's build-template.sh --build-patch) → same source, but now correctly refuses to patch without a valid ticket.
 
 ## Install
 
@@ -243,7 +259,8 @@ Check logs for lines like:
 
 ### Build fails due to missing references
 
-- Re-copy `BepInEx.dll`, `BepInEx.Preloader.dll`, and `Mono.Cecil.dll` into `lib/`.
+- Re-download the latest BepInEx release and re-copy `BepInEx.dll`, `BepInEx.Preloader.dll`,
+  `Mono.Cecil.dll`, and `0Harmony.dll` into `lib/` (see Dependency Setup).
 - Confirm `XboxControllerPatch.csproj` HintPath entries point to `lib/...`.
 
 ### Patcher not loaded
