@@ -6,6 +6,19 @@
     <Nullable>disable</Nullable>
   </PropertyGroup>
 
+  <!--
+    Off by default: a plain `dotnet build` (as documented in this project's own
+    README) produces a fully working, standalone patch, no ticket check, no
+    source edits needed. Only the official distribution build (see the parent
+    "Overcooked2 Xbox Patched" repo's build_template.sh, run with
+    the build_patch option) passes RequireLicenseTicket=true to compile the
+    check in, gating its own precompiled DLL behind a launcher issued ticket.
+    See LicenseTicket.cs.
+  -->
+  <PropertyGroup Condition="'$(RequireLicenseTicket)'=='true'">
+    <DefineConstants>$(DefineConstants);REQUIRE_LICENSE_TICKET</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net46" Version="1.0.3" PrivateAssets="All" />
   </ItemGroup>

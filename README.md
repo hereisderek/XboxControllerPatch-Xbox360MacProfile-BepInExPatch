@@ -162,6 +162,19 @@ Expected output:
 XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatch.dll
 ```
 
+This plain build is fully standalone - it patches on its own with no external dependency or check
+of any kind, exactly as described above.
+
+### About `LicenseTicket.cs`
+
+This repo also contains `LicenseTicket.cs`, an optional check that a separate downstream project
+(a distributed launcher app, not part of this repo) uses to gate its own precompiled build of this
+DLL behind a short-lived, machine-bound ticket only that launcher can issue. It's wired up in
+`Patcher.cs` behind `#if REQUIRE_LICENSE_TICKET`, which is **off unless you explicitly build with**
+`-p:RequireLicenseTicket=true` (see the `Condition` in `XboxControllerPatch.csproj`). The plain build
+above never sets it, so the check compiles out entirely and has no effect - nothing to remove, no
+behavior to work around.
+
 ## Install
 
 Copy built patcher into game patchers folder:
