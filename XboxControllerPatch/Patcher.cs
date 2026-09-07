@@ -15,12 +15,16 @@ public static class Patcher
     public static void Patch(AssemblyDefinition assembly)
     {
 #if REQUIRE_LICENSE_TICKET
+        Console.WriteLine("[XboxPatch] Checking authorization.");
         if (!LicenseTicket.IsAuthorized(TimeSpan.FromMinutes(10)))
         {
             Console.WriteLine("[XboxPatch] Not authorized on this machine - skipping patch.");
             Console.WriteLine("[XboxPatch] Launch the game through the official launcher app. If it prompts for a serial number, request one for this machine (see the project README).");
             return;
         }
+#else
+        Console.WriteLine("[XboxPatch] Not checking authorization.");
+
 #endif
 
         Xbox360Patch.Apply(assembly);
