@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tests LicenseTicket.cs / Fingerprint.cs directly, compiled by file reference
+    rather than a ProjectReference to XboxControllerPatch.csproj - those two
+    files have no BepInEx/Mono.Cecil dependency (only Patcher.cs and
+    Xbox360Patch.cs do), so this project can target a normal, modern TFM
+    instead of net46 and needs no BepInEx binaries in lib/ to run.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Run on whatever .NET runtime is actually installed (this machine only
+         has 10.0.x) rather than requiring the exact 8.0 runtime side by side. -->
+    <RollForward>LatestMajor</RollForward>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Ticket tests mutate the OC2XBOXPATCH_TICKET environment variable, which
+         is process-global - keep everything on one thread. -->
+    <TestTfmsInParallel>false</TestTfmsInParallel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../XboxControllerPatch/Fingerprint.cs" />
+    <Compile Include="../XboxControllerPatch/LicenseTicket.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,6 +1,8 @@
 # .NET build outputs
 XboxControllerPatch/bin/
 XboxControllerPatch/obj/
+XboxControllerPatch.Tests/bin/
+XboxControllerPatch.Tests/obj/
 
 # Local dotnet CLI home used during sandboxed builds
 XboxControllerPatch/.dotnet-home/

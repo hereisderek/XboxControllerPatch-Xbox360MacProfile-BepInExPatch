@@ -26,9 +26,15 @@ public static class LicenseTicket
     // Must match AuthTicket.environmentVariableName in swift/AuthTicket.swift exactly.
     private const string EnvironmentVariableName = "OC2XBOXPATCH_TICKET";
 
-    private const int PayloadLength = 24; // 16-byte machine hash + 8-byte timestamp
-    private const int TagLength = 32;     // HMAC-SHA256 output
-    private const int TicketLength = PayloadLength + TagLength;
+    // payload = machineHashLength (1 byte) || machineHash (N bytes) || timestamp (8 bytes).
+    // The hash length isn't hardcoded - it's read out of the ticket's own
+    // first byte (see AuthTicket.swift), so this keeps verifying correctly
+    // even if Fingerprint.hashLength changes on the launcher side without
+    // this DLL being rebuilt at the same time.
+    private const int LengthPrefixSize = 1;
+    private const int TimestampSize = 8;
+    private const int TagLength = 32; // HMAC-SHA256 output
+    private const int MaxHashLength = 32; // a full SHA-256 digest - anything past this is corrupt
 
     private const string LogPrefix = "[XboxPatch][License] ";
 
@@ -55,16 +61,31 @@ public static class LicenseTicket
                 return false;
             }
 
-            if (raw.Length != TicketLength)
+            if (raw.Length < LengthPrefixSize)
             {
-                Log("Ticket has the wrong length (" + raw.Length + " bytes, expected " + TicketLength + ") - rejecting.");
+                Log("Ticket is too short to contain a length prefix - rejecting.");
                 return false;
             }
 
-            var payload = new byte[PayloadLength];
+            int hashLength = raw[0];
+            if (hashLength < 1 || hashLength > MaxHashLength)
+            {
+                Log("Ticket declares an invalid hash length (" + hashLength + ") - rejecting.");
+                return false;
+            }
+
+            int payloadLength = LengthPrefixSize + hashLength + TimestampSize;
+            int ticketLength = payloadLength + TagLength;
+            if (raw.Length != ticketLength)
+            {
+                Log("Ticket has the wrong length (" + raw.Length + " bytes, expected " + ticketLength + " for a " + hashLength + "-byte hash) - rejecting.");
+                return false;
+            }
+
+            var payload = new byte[payloadLength];
             var tag = new byte[TagLength];
-            Array.Copy(raw, 0, payload, 0, PayloadLength);
-            Array.Copy(raw, PayloadLength, tag, 0, TagLength);
+            Array.Copy(raw, 0, payload, 0, payloadLength);
+            Array.Copy(raw, payloadLength, tag, 0, TagLength);
 
             using (var hmac = new HMACSHA256(HexToBytes(SharedSecretHex)))
             {
@@ -77,10 +98,10 @@ public static class LicenseTicket
             }
             Log("Ticket signature valid.");
 
-            var machineHash = new byte[16];
-            Array.Copy(payload, 0, machineHash, 0, 16);
+            var machineHash = new byte[hashLength];
+            Array.Copy(payload, LengthPrefixSize, machineHash, 0, hashLength);
 
-            long ts = ReadInt64BigEndian(payload, 16);
+            long ts = ReadInt64BigEndian(payload, LengthPrefixSize + hashLength);
             long now = ToUnixTimeSeconds(DateTime.UtcNow);
             long age = now - ts;
             if (age > maxAge.TotalSeconds || ts - now > 60)
@@ -90,7 +111,7 @@ public static class LicenseTicket
             }
             Log("Ticket is fresh (age " + age + "s).");
 
-            var currentMachineHash = Fingerprint.CurrentMachineHash();
+            var currentMachineHash = Fingerprint.CurrentMachineHash(hashLength);
             if (!ConstantTimeEquals(currentMachineHash, machineHash))
             {
                 Log("Ticket's machine hash does not match this machine - rejecting.");
