@@ -5,23 +5,29 @@ using System.Text;
 
 // Ports just enough of the launcher's swift/Fingerprint.swift to compute the
 // same machine hash from C#: SHA-256 of the Mac's hardware UUID (from
-// `ioreg`), truncated to 16 bytes. Must stay byte-for-byte identical to the
-// Swift side, or LicenseTicket's machine-hash comparison will never match.
+// `ioreg`), truncated to the length the ticket itself declares (see
+// LicenseTicket.cs) rather than a hardcoded constant here - that way this
+// side never has to be rebuilt in lockstep just because
+// Fingerprint.hashLength changed on the Swift side.
 public static class Fingerprint
 {
-    public static byte[] CurrentMachineHash()
+    public static byte[] CurrentMachineHash(int length)
     {
         var raw = CurrentMachineIdRaw() ?? "unknown-machine";
-        return Sha256Truncated16(raw);
+        return TruncatedHash(raw, length);
     }
 
-    private static byte[] Sha256Truncated16(string s)
+    private static byte[] TruncatedHash(string s, int length)
     {
         using (var sha = SHA256.Create())
         {
             var full = sha.ComputeHash(Encoding.UTF8.GetBytes(s));
-            var result = new byte[16];
-            Array.Copy(full, result, 16);
+            if (length < 0 || length > full.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(length));
+            }
+            var result = new byte[length];
+            Array.Copy(full, result, length);
             return result;
         }
     }

@@ -191,6 +191,17 @@ behavior to work around.
 * Plain `dotnet build -c Release` (patch/README's own documented steps, no special flags) → patch applies fully standalone, zero ticket check, zero [License] log lines, no OC2XBOXPATCH_TICKET needed at all.
 * `dotnet build -c Release -p:RequireLicenseTicket=true` (only ever passed by this repo's build.sh --build-patch) → same source, but now correctly refuses to patch without a valid ticket.
 
+### Tests
+
+`XboxControllerPatch.Tests/` covers `LicenseTicket.IsAuthorized` and `Fingerprint.CurrentMachineHash`
+directly (valid/stale/forged/tampered/malformed tickets, and hash-length handling), without needing
+BepInEx, Mono.Cecil, or the launcher app. Run:
+
+```bash
+cd XboxControllerPatch.Tests
+dotnet test
+```
+
 ## Install
 
 Copy built patcher into game patchers folder:
