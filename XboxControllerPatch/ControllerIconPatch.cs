@@ -168,20 +168,31 @@ public static class ControllerIconPatch
     //
     // This was previously shipped disabled after a live freeze was observed
     // opening this exact screen (see git history) - the disabled version
-    // re-called KeyboardUtils.IsKeyboard at the very top of the method and
-    // inserted the new check via il.InsertBefore(ps4FallbackStart, ...).
-    // That's the bug: a branch instruction jumps *directly* to its target and
-    // skips whatever precedes it in the instruction stream, so the method's
-    // existing `brfalse` (checking IsKeyboard) kept landing exactly on the
-    // original PS4-return code, silently bypassing the newly-inserted Xbox
-    // check entirely - ilverify reported this as perfectly valid IL, since
-    // dead-but-well-formed code isn't something a verifier can flag, and it
-    // decompiled back to output identical to the unpatched original. Fixed
-    // (and confirmed via decompiling the patched output and a live test of
-    // this exact screen with no freeze) by retargeting the *existing* brfalse
-    // to land on our new code instead of re-checking IsKeyboard a second
-    // time - see patch-v2/FINDINGS.md and patch-v2/TODO.md for the full
-    // investigation.
+    // prepended a second, hardcoded KeyboardUtils.IsKeyboard(Player.Player1)
+    // check at the very top of the method (before body.Instructions[0]),
+    // rather than reusing the method's own existing keyboard check. The
+    // suspected issue (never fully confirmed - see patch-v2/TODO.md) is that
+    // hardcoding Player1 there is wrong for any PlatformSet instance actually
+    // evaluating a different player's icon, unlike the method's own
+    // pre-existing keyboard check, which already looks at the correct player.
+    //
+    // This version is structured differently and more conservatively: instead
+    // of duplicating (and getting wrong) a second keyboard check, it reuses
+    // the method's own existing `brfalse` - which already lands exactly on
+    // the PS4 fallback - by retargeting *that* instruction to land on our new
+    // code first, falling through to the original PS4 fallback unchanged when
+    // it doesn't match. This also means the keyboard-detection path is left
+    // completely untouched. Note for future edits to this method: inserting
+    // new code via il.InsertBefore(existingBranchTarget, ...) without also
+    // retargeting the branch that points at it is a real, easy-to-make
+    // mistake elsewhere - a branch jumps directly to its target and skips
+    // whatever precedes it in the instruction stream, so naively-inserted
+    // code can end up unreachable dead code that ilverify still reports as
+    // perfectly valid IL (it cannot detect "well-formed but unreachable").
+    // That exact mistake was caught and fixed in this method's first draft
+    // during the patch-v2 investigation, before ever shipping - see
+    // patch-v2/FINDINGS.md and patch-v2/TODO.md for the full writeup, and
+    // this method's own git history for the fix.
     private static void PatchSemanticPlatformSet(
         ModuleDefinition module,
         TypeDefinition inputDeviceType,
