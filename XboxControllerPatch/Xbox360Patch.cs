@@ -8,6 +8,17 @@ public static class Xbox360Patch
     private const string TypeName = "InControl.Xbox360MacProfile";
     private const string MarkerName = "Microsoft Wireless 360 Controller";
     private const string ExistingAddedName = "Xbox Wireless Controller";
+    // Unity's Input.GetJoystickNames() reports this exact controller (a
+    // genuine Xbox Wireless Controller, connected over Bluetooth) with a
+    // leading space - confirmed via a diagnostic BepInEx plugin logging the
+    // real runtime byte values (0x20 'X' 'b' 'o' 'x' ...). HasJoystickName
+    // does an exact (if case-insensitive) match with no trimming, so without
+    // this the un-prefixed name above never matches the joystick that
+    // actually carries live button/axis input - only the inert macOS
+    // GameController-framework proxy device ("Microsoft GamePad-1") matched,
+    // which is why the patch reported success but the controller still did
+    // nothing in game.
+    private const string ExistingAddedNameWithLeadingSpace = " Xbox Wireless Controller";
 
     public static void Apply(AssemblyDefinition assembly)
     {
@@ -69,7 +80,7 @@ public static class Xbox360Patch
             }
 
             var arraySizeInstruction = instructions[newArrayIndex - 1];
-            SetLdcI4(arraySizeInstruction, 11);
+            SetLdcI4(arraySizeInstruction, 12);
 
             var joystickStoreInstruction = FindJoystickNameStore(instructions, newArrayIndex + 1);
             if (joystickStoreInstruction == null)
@@ -83,6 +94,7 @@ public static class Xbox360Patch
             InsertControllerName(il, joystickStoreInstruction, 8, "Microsoft GamePad-3");
             InsertControllerName(il, joystickStoreInstruction, 9, "Microsoft GamePad-4");
             InsertControllerName(il, joystickStoreInstruction, 10, ExistingAddedName);
+            InsertControllerName(il, joystickStoreInstruction, 11, ExistingAddedNameWithLeadingSpace);
 
             Log("Found JoystickNames array");
             Log("Added controller names");
