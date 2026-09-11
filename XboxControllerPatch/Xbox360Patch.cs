@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -20,7 +19,7 @@ public static class Xbox360Patch
                 return;
             }
 
-            var targetType = assembly.MainModule.Types.FirstOrDefault(t => t.FullName == TypeName);
+            var targetType = FindType(assembly.MainModule.Types, TypeName);
             if (targetType == null)
             {
                 Log("Type not found: " + TypeName);
@@ -29,7 +28,7 @@ public static class Xbox360Patch
 
             Log("Found Xbox360MacProfile");
 
-            var ctor = targetType.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic && m.HasBody);
+            var ctor = FindConstructor(targetType.Methods);
             if (ctor == null)
             {
                 Log("Constructor not found");
@@ -40,13 +39,13 @@ public static class Xbox360Patch
             var il = body.GetILProcessor();
             var instructions = body.Instructions;
 
-            if (instructions.Any(IsExistingAddedNameInstruction))
+            if (AnyMatch(instructions, IsExistingAddedNameInstruction))
             {
                 Log("Controller names already present, skipping");
                 return;
             }
 
-            var markerInstruction = instructions.FirstOrDefault(IsMarkerInstruction);
+            var markerInstruction = FindFirstMatch(instructions, IsMarkerInstruction);
             if (markerInstruction == null)
             {
                 Log("Marker string not found");
@@ -94,6 +93,63 @@ public static class Xbox360Patch
             Log("Patch failed: " + ex);
         }
     }
+
+    // Hand-rolled instead of System.Linq (FirstOrDefault/Any): those take a
+    // Func<T,TResult> parameter, and this project's net46 reference
+    // assemblies place Func<> in mscorlib - but the actual (much older) Mono
+    // corlib Unity bundles with this game still has it in System.Core.dll
+    // instead, so the TypeRef can't be resolved at all. Mono throws a
+    // TypeLoadException just trying to JIT a method that mentions it, before
+    // any of that method's own try/catch can run - see Apply()'s outer catch,
+    // which never fired for this exact reason.
+    private static TypeDefinition FindType(IEnumerable<TypeDefinition> types, string fullName)
+    {
+        foreach (var type in types)
+        {
+            if (type.FullName == fullName)
+            {
+                return type;
+            }
+        }
+
+        return null;
+    }
+
+    private static MethodDefinition FindConstructor(IEnumerable<MethodDefinition> methods)
+    {
+        foreach (var method in methods)
+        {
+            if (method.IsConstructor && !method.IsStatic && method.HasBody)
+            {
+                return method;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool AnyMatch(IList<Instruction> instructions, InstructionPredicate predicate)
+    {
+        return FindFirstMatch(instructions, predicate) != null;
+    }
+
+    private static Instruction FindFirstMatch(IList<Instruction> instructions, InstructionPredicate predicate)
+    {
+        foreach (var instruction in instructions)
+        {
+            if (predicate(instruction))
+            {
+                return instruction;
+            }
+        }
+
+        return null;
+    }
+
+    // A plain named delegate, unlike System.Func<T,TResult> - its type
+    // identity lives in THIS assembly, not in an ambiguous BCL location, so
+    // it can't hit the same resolution failure.
+    private delegate bool InstructionPredicate(Instruction instruction);
 
     private static bool IsMarkerInstruction(Instruction instruction)
     {
