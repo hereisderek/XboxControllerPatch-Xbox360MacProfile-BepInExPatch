@@ -1,6 +1,12 @@
 # BepInEx Preloader Patcher Project Specification
 ## Xbox360MacProfile Controller Name Patch
 
+**Historical:** this is the original project specification that produced `Xbox360Patch.cs` -
+still an accurate description of *that one patch*, but the project has since grown to include
+icon fixes (`ControllerIconPatch.cs`) and native controller input support
+(`NativeControllerPatch.cs` + `native/`) that this document never covered. See `README.md` for
+the current, complete picture of what this project does.
+
 the original game app can be found following the symlink in the `Overcooked2.app` bundle:
 
 ```

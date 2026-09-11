@@ -3,12 +3,17 @@ XboxControllerPatch macOS Installation Guide
 
 Project:
 - Repository: https://github.com/hereisderek/XboxControllerPatch-Xbox360MacProfile-BepInExPatch
-- Releases: https://github.com/hereisderek/XboxControllerPatch-Xbox360MacProfile-BepInExPatch/releases
 - Maintainer: Derek
 
 Purpose:
-This patch extends Xbox controller name matching in Overcooked! 2 by installing
-MacOSXboxControllerPatch.dll as a BepInEx preloader patcher.
+This patch fixes Xbox controller support in Overcooked! 2 end to end - name recognition, icon
+display, and (via a small native helper) the actual button/axis input itself - by installing
+MacOSXboxControllerPatchNoAuth.dll (built from this repo's source, see README.md) as a BepInEx
+preloader patcher. All three fixes are applied by that one DLL; there is nothing else to install
+separately for name/icon recognition. Native controller input additionally needs
+libOC2NativeXboxInput.dll (built from native/, see Part 2b below) - without it, name/icon
+recognition still works, but modern controllers' actual input may not, depending on whether Steam
+Input is enabled (see README.md's "Native controller input redirect" section for why).
 
 Requirements
 ------------
@@ -16,6 +21,7 @@ Requirements
 2. Overcooked! 2 installed
 3. Steam game folder access
 4. BepInEx 5 (latest) for Mono/Unity games
+5. .NET SDK 8+ (to build the DLL from source - see README.md's Quick Start)
 
 Part 1: Install Latest BepInEx
 ------------------------------
@@ -36,30 +42,37 @@ Part 1: Install Latest BepInEx
    <GameDir>/BepInEx/patchers
    <GameDir>/run_bepinex.sh
 
-Part 2: Install XboxControllerPatch
------------------------------------
-Option A (recommended): Use the repo Release package
-1. Open releases:
-   https://github.com/hereisderek/XboxControllerPatch-Xbox360MacProfile-BepInExPatch/releases
+Part 2: Build and Install XboxControllerPatch
+----------------------------------------------
+There is no prebuilt release package - build from source (see README.md's Quick Start for the
+exact commands):
 
-2. Download the latest MacOSXboxControllerPatch package from release assets.
-
-3. Extract it. You should have:
-   MacOSXboxControllerPatch/
-   - MacOSXboxControllerPatch.dll
-   - INSTALL.txt
-
-4. Copy the DLL to:
-   <GameDir>/BepInEx/patchers/MacOSXboxControllerPatch.dll
-
-Option B: Build from source
 1. Clone the repository:
    https://github.com/hereisderek/XboxControllerPatch-Xbox360MacProfile-BepInExPatch
 
-2. Follow README build instructions, then copy:
-   XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatch.dll
+2. Follow README.md's Quick Start / Dependency Setup / Build sections, then copy:
+   XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatchNoAuth.dll
    to
    <GameDir>/BepInEx/patchers/
+
+   (A plain `dotnet build -c Release`, as documented there, produces this exact filename - a
+   standalone build with no ticket/auth check of any kind. A downstream project's own build
+   process may instead produce MacOSXboxControllerPatchAuth.dll, gated behind a launcher-issued
+   ticket that only that launcher can mint - not relevant to building this repo on its own.)
+
+Part 2b: Native Controller Input (optional but recommended)
+-------------------------------------------------------------
+1. Build the native helper (see README.md's "Native controller input redirect" section):
+   cd native && ./build.sh
+   This produces libOC2NativeXboxInput.dylib in that same directory.
+
+2. Copy it next to the patcher DLL you installed in Part 2, under a "native" subfolder:
+   <GameDir>/BepInEx/native/libOC2NativeXboxInput.dylib
+
+   (The patcher resolves this path itself, relative to its own location under
+   BepInEx/patchers/ - no other configuration needed. If this file is missing, the patch still
+   applies for name/icon recognition; only the native input redirect is skipped, logged but not
+   fatal.)
 
 Part 3: Enable Console Logging
 ------------------------------
@@ -76,7 +89,8 @@ Part 4: Run and Verify
    cd <GameDir>
    ./run_bepinex.sh Overcooked2.app
 
-2. Confirm logs include these lines:
+2. Confirm logs include lines like these (see README.md's Quick Start for the full expected set,
+   including [Icon] and [Native] tagged lines):
    [XboxPatch] Found Xbox360MacProfile
    [XboxPatch] Found JoystickNames array
    [XboxPatch] Added controller names
@@ -87,20 +101,29 @@ If these lines appear, the patch loaded correctly.
 Troubleshooting
 ---------------
 1. Error mentions netstandard assembly missing:
-   - Make sure you are using the net46 build from releases.
+   - Make sure you built with the net46 target this project uses (see README.md).
    - Replace old patch DLL in <GameDir>/BepInEx/patchers/.
 
 2. Patcher not loading:
-   - Verify exact file name: MacOSXboxControllerPatch.dll
+   - Verify exact file name: MacOSXboxControllerPatchNoAuth.dll (or ...Auth.dll - see Part 2)
    - Verify location: <GameDir>/BepInEx/patchers/
+   - Make sure there isn't a stray copy of the *other* variant sitting in patchers/ too -
+     BepInEx loads every DLL it finds there.
 
 3. No BepInEx logs:
    - Confirm you launch with run_bepinex.sh, not the app directly.
 
+4. Name/icon recognition works but the controller doesn't actually respond:
+   - Check whether Steam Input is enabled for the game (Steam > right-click Overcooked! 2 >
+     Properties > Controller). If off, confirm libOC2NativeXboxInput.dylib is installed per
+     Part 2b and check BepInEx logs for "[XboxPatch] [Native]" lines - they report exactly which
+     path (Steam Input vs. native) is active and why.
+
 Uninstall
 ---------
 1. Remove:
-   <GameDir>/BepInEx/patchers/MacOSXboxControllerPatch.dll
+   <GameDir>/BepInEx/patchers/MacOSXboxControllerPatchNoAuth.dll
+   <GameDir>/BepInEx/native/libOC2NativeXboxInput.dylib   (if installed)
 
 2. Relaunch game with run_bepinex.sh.
 

@@ -1,6 +1,8 @@
 # XboxControllerPatch
 
-A BepInEx preloader patcher for Overcooked! 2 (macOS, Unity Mono) that extends controller name detection in `InControl.Xbox360MacProfile`.
+A BepInEx preloader patcher for Overcooked! 2 (macOS, Unity Mono) that fixes Xbox controller
+support end to end: name recognition, icon display, and (via a small native helper in `native/`)
+the actual button/axis input itself.
 
 This project patches `Assembly-CSharp.dll` in memory during startup using Mono.Cecil, so the original game assembly on disk is not permanently modified.
 
@@ -37,53 +39,84 @@ cd "<GameDir>"
 ./run_bepinex.sh Overcooked2.app
 ```
 
-Expected startup logs:
+Expected startup logs (all three patches apply in the same run - `[XboxPatch]` lines with no
+tag are `Xbox360Patch`, `[Icon]` is `ControllerIconPatch`, `[Native]` is `NativeControllerPatch`):
 
 ```text
 [XboxPatch] Found Xbox360MacProfile
 [XboxPatch] Found JoystickNames array
 [XboxPatch] Added controller names
 [XboxPatch] Patch completed
+[XboxPatch] [Icon] Patched button-prompt icon lookup to prefer Xbox icons for a recognized Xbox device
+[XboxPatch] [Icon] Patched gamepad menu icon lookup to prefer Xbox sprites for a recognized Xbox device
+[XboxPatch] [Icon] Patched semantic icon lookup to prefer Xbox icons for a recognized Xbox device (keyboard branch untouched)
+[XboxPatch] [Native] Resolved native helper path: ...
+[XboxPatch] [Native] Patched UnityButtonSource.GetState to redirect through the native Xbox bridge when connected
+[XboxPatch] [Native] Patched UnityAnalogSource.GetValue to redirect through the native Xbox bridge when connected
+[XboxPatch] [Native] Native controller patch completed
 ```
+
+`[Native]`'s dylib (`libOC2NativeXboxInput.dylib`, from `native/`) has to actually exist next to
+this patcher DLL for that last block to appear - see "Native controller input redirect" below.
 
 ## What This Project Does
 
-Overcooked! 2 includes a hardcoded `JoystickNames` list in `InControl.Xbox360MacProfile`.
+Three independent patches, all applied by the same preloader entry point at launch time:
 
-This patcher updates that list from 6 entries to 11 entries and appends:
-
-- Microsoft GamePad-1
-- Microsoft GamePad-2
-- Microsoft GamePad-3
-- Microsoft GamePad-4
-- Xbox Wireless Controller
-
-The patch is applied by BepInEx preloader at launch time.
+1. **Controller name recognition** (`Xbox360Patch.cs`): Overcooked! 2 includes a hardcoded
+   `JoystickNames` list in `InControl.Xbox360MacProfile` with no entries any real macOS device or
+   Steam Input's virtual device ever reports. This patcher grows that list from 6 entries to 13,
+   appending real Xbox Wireless Controller Bluetooth-name variants *and* the `Microsoft GamePad-N`
+   names Steam Input's virtual device reports - so the game recognizes an Xbox controller as one,
+   whether or not Steam Input is enabled.
+2. **Icon fixes** (`ControllerIconPatch.cs`): three separate places hardcode PS4 icons regardless
+   of what's actually connected (HUD button prompts, the lobby controller graphic, the Controller
+   Options screen) - patched to show Xbox icons when a recognized Xbox device is active.
+3. **Native input** (`NativeControllerPatch.cs` + `native/`): recognizing the controller's *name*
+   doesn't fix Unity's own broken native joystick-polling code on macOS, which independently
+   misreads modern Xbox controllers' actual button/axis reports. This redirects input through a
+   small native helper (`libOC2NativeXboxInput.dylib`, built from
+   `native/xbox_gamecontroller.swift`) that reads the controller via Apple's GameController
+   framework instead - but only when Steam Input isn't the one already handling it (Steam Input's
+   own path works fine on its own; this only fixes the native/raw path). See "Native controller
+   input redirect" below for the full mechanism.
 
 ## How It Works
 
-- Patcher entrypoint: `XboxControllerPatch/Patcher.cs`
-- Patch logic: `XboxControllerPatch/Xbox360Patch.cs`
+- Patcher entrypoint: `XboxControllerPatch/Patcher.cs` - calls `Xbox360Patch.Apply`,
+  `ControllerIconPatch.Apply`, and `NativeControllerPatch.Apply`, in that order, against the same
+  `AssemblyDefinition`.
 - Target assembly: `Assembly-CSharp.dll`
-- Target type: `InControl.Xbox360MacProfile`
-- Strategy:
+- `Xbox360Patch.cs` strategy (target type `InControl.Xbox360MacProfile`):
   1. Find the instance constructor.
   2. Find unique marker string `Microsoft Wireless 360 Controller`.
   3. Find preceding `newarr System.String`.
-  4. Change array size from 6 to 11.
-  5. Insert IL to append indices 6..10 before `stfld JoystickNames`.
+  4. Change the array size to fit the new entries.
+  5. Insert IL to append the new names before `stfld JoystickNames`.
+- `ControllerIconPatch.cs` and `NativeControllerPatch.cs` each patch different target
+  methods/types directly (see their own file-header comments for specifics) rather than growing
+  an existing array - see "Native controller input redirect" below for that patch's mechanism in
+  detail.
 
 ## Repository Layout
 
 ```text
 XboxControllerPatch/
 ├── README.md
-├── ai-instructions.md
+├── ai-instructions.md                 # historical - original spec for Xbox360Patch only
+├── INSTALL.txt
 ├── Overcooked2.app                    # symlink in this workspace
+├── native/
+│   ├── xbox_gamecontroller.swift      # -> libOC2NativeXboxInput.dylib
+│   └── build.sh
 └── XboxControllerPatch/
     ├── XboxControllerPatch.csproj
     ├── Patcher.cs
     ├── Xbox360Patch.cs
+    ├── ControllerIconPatch.cs
+    ├── NativeControllerPatch.cs
+    ├── Fingerprint.cs
+    ├── LicenseTicket.cs
     ├── lib/
     │   ├── BepInEx.dll
     │   ├── BepInEx.Preloader.dll
@@ -91,7 +124,7 @@ XboxControllerPatch/
     │   └── 0Harmony.dll
     └── bin/
       └── Release/net46/
-            └── MacOSXboxControllerPatchNoAuth.dll
+            └── MacOSXboxControllerPatchNoAuth.dll   # (or ...Auth.dll, see "About LicenseTicket.cs")
 ```
 
 ## Prerequisites
@@ -259,12 +292,23 @@ Check logs for lines like:
 `XboxControllerPatch/NativeControllerPatch.cs` (wired into `Patcher.cs` alongside `Xbox360Patch` and
 `ControllerIconPatch`) patches `InControl.UnityButtonSource.GetState`/`InControl.UnityAnalogSource.GetValue`
 to redirect through a native helper, `libOC2NativeXboxInput.dylib` (built from
-`native/xbox_gamecontroller.swift` via `native/build.sh`), whenever the active device is
-Xbox-recognized and the helper reports a controller connected - falling through to the original
-`Input.GetKey`/`GetAxisRaw` behavior otherwise. This exists because Unity's own native joystick
-polling on macOS mis-reads modern Xbox controllers' HID reports at the engine-binary level (not
-fixable by patching this DLL alone - see the parent repo's `patch-v2/TODO.md` for the Ghidra
-root-cause writeup); the dylib reads the controller via Apple's GameController framework instead.
+`native/xbox_gamecontroller.swift` via `native/build.sh`), which reads the controller via Apple's
+GameController framework - falling through to the original `Input.GetKey`/`GetAxisRaw` behavior
+otherwise. This exists because Unity's own native joystick polling on macOS mis-reads modern Xbox
+controllers' HID reports at the engine-binary level (not fixable by patching this DLL alone - see
+the parent repo's `patch-v2/TODO.md` for the Ghidra root-cause writeup).
+
+**The redirect only engages when Steam Input isn't the one driving the controller.** A device
+being "Xbox-recognized" (`inputDevice.Name.Contains("XBox")`) isn't enough on its own to decide
+this: InControl overwrites `InputDevice.Name` to the same profile name whether `Xbox360Patch.cs`'s
+`Microsoft GamePad-N` (Steam Input) entries or its real-Bluetooth-name entries matched, so a
+Name-only check can't tell the two apart - and Steam Input's own path already works correctly on
+its own, so redirecting it too is not a no-op, it's a regression (confirmed live: total controller
+non-response with Steam Input enabled). The fix instead reads the *raw*, never-overwritten per-slot
+name straight from `UnityEngine.Input.GetJoystickNames()` and only proceeds with the redirect when
+that raw name does **not** contain `"GamePad"` (Steam Input's own marker) - any ambiguity (the
+`GetJoystickNames` reference not found, a null/out-of-range array, a null entry) defaults to
+*not* redirecting, since Steam Input's path must never be the one left uncertain.
 
 The dylib's absolute path is resolved fresh every `Patch()` call from this patcher DLL's own
 on-disk location (`Assembly.GetExecutingAssembly().Location`, walking up from
@@ -274,16 +318,23 @@ and baked into the in-memory Cecil patch as a full-path `ModuleReference` - neve
 `Contents/Plugins/` or any other default location for. A missing dylib at that path is logged
 (`[XboxPatch] [Native] ...`) and skipped, not fatal - the rest of the patch still applies.
 
-**Known caveat:** "Xbox-recognized" (`inputDevice.Name.Contains("XBox")`) can't tell apart a
-device recognized via Steam Input's `Microsoft GamePad-N` rename (`Xbox360Patch.cs`) from one
-recognized via its real Bluetooth name - InControl overwrites both to the same profile name, so
-this redirect is attempted either way, not only when Steam Input is off. A real regression from
-this was found and fixed: `native/xbox_gamecontroller.swift`'s `GCController.controllers()` lookup
-wasn't filtering out a known inert macOS GameController-framework proxy device, which could make the
-redirect wrongly claim "connected" and silently override the Steam Input path it should have left
-alone, or misassign input across two real controllers. See `patch-v2/TODO.md`'s "unfiltered
-GCController.controllers()" entry and `patch-v2/native/README.md` for the full writeup and the fix
-(`isGenuineXboxController`, filtering by `vendorName`).
+**Runtime logging** (budget-gated to a handful of lines per joystick slot, not spammed every
+frame, via `UnityEngine.Debug.Log` - captured by BepInEx's own log pipeline the same as any other
+Unity log line) reports which path is actually active for a given joystick:
+
+```text
+[XboxPatch] [Native] Steam Input active for joystick 1 - native redirect intentionally skipped ...
+[XboxPatch] [Native] Native GameController redirect ACTIVE for joystick 1 ...
+```
+
+**A separate, now-fixed bug in the same area:** `native/xbox_gamecontroller.swift`'s
+`GCController.controllers()` lookup wasn't filtering out a known inert macOS
+GameController-framework proxy device, which could make the redirect wrongly claim "connected" for
+a device that never sends real input - misassigning which physical controller a given joystick
+slot reads from, or (before the fix above) silently overriding the Steam Input path. Fixed by
+filtering to controllers whose `vendorName` contains "xbox" before indexing
+(`isGenuineXboxController`). See `patch-v2/TODO.md` and `patch-v2/native/README.md` for the full
+writeup of both bugs.
 
 ## Safety and Idempotence
 
