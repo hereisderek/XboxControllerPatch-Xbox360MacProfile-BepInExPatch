@@ -4,13 +4,13 @@ using Mono.Cecil;
 
 public static class Patcher
 {
-    public static IEnumerable<string> TargetDLLs
-    {
-        get
-        {
-            yield return "Assembly-CSharp.dll";
-        }
-    }
+    // Not a `yield return` iterator on purpose: the compiler-generated state
+    // machine for those calls System.Environment.CurrentManagedThreadId as a
+    // thread-reuse optimization, which doesn't exist in the old Mono corlib
+    // Unity bundled with this game - Mono throws a MissingMethodException
+    // resolving it, so BepInEx's foreach over TargetDLLs never even reaches
+    // "Assembly-CSharp.dll" and the patch silently never applies.
+    public static IEnumerable<string> TargetDLLs { get; } = new[] { "Assembly-CSharp.dll" };
 
     public static void Patch(AssemblyDefinition assembly)
     {
