@@ -2,7 +2,6 @@
 
   <PropertyGroup>
     <TargetFramework>net46</TargetFramework>
-    <AssemblyName>MacOSXboxControllerPatch</AssemblyName>
     <Nullable>disable</Nullable>
   </PropertyGroup>
 
@@ -14,9 +13,21 @@
     the build_patch option) passes RequireLicenseTicket=true to compile the
     check in, gating its own precompiled DLL behind a launcher issued ticket.
     See LicenseTicket.cs.
+
+    The two variants get distinct AssemblyNames (and so distinct output
+    filenames) for the same reason: mixing up which one is actually staged
+    into BepInEx/patchers/ has bitten us before (a stray copy of the wrong
+    variant left in there loads *alongside* the intended one - BepInEx loads
+    every DLL it finds there - silently defeating the ticket check). A
+    self-describing filename makes that mistake obvious at a glance instead of
+    requiring a rebuild to notice.
   -->
   <PropertyGroup Condition="'$(RequireLicenseTicket)'=='true'">
     <DefineConstants>$(DefineConstants);REQUIRE_LICENSE_TICKET</DefineConstants>
+    <AssemblyName>MacOSXboxControllerPatchAuth</AssemblyName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RequireLicenseTicket)'!='true'">
+    <AssemblyName>MacOSXboxControllerPatchNoAuth</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

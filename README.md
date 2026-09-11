@@ -29,7 +29,7 @@ cp /tmp/bepinex/BepInEx/core/0Harmony.dll lib/
 dotnet build -c Release
 
 # 5) Install patcher into BepInEx patchers folder
-cp bin/Release/net46/MacOSXboxControllerPatch.dll \
+cp bin/Release/net46/MacOSXboxControllerPatchNoAuth.dll \
   "<GameDir>/BepInEx/patchers/"
 
 # 6) Run game via BepInEx launcher
@@ -91,7 +91,7 @@ XboxControllerPatch/
     │   └── 0Harmony.dll
     └── bin/
       └── Release/net46/
-            └── MacOSXboxControllerPatch.dll
+            └── MacOSXboxControllerPatchNoAuth.dll
 ```
 
 ## Prerequisites
@@ -172,7 +172,7 @@ dotnet build -c Release
 Expected output:
 
 ```text
-XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatch.dll
+XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatchNoAuth.dll
 ```
 
 This plain build is fully standalone - it patches on its own with no external dependency or check
@@ -188,8 +188,12 @@ DLL behind a short-lived, machine-bound ticket only that launcher can issue. It'
 above never sets it, so the check compiles out entirely and has no effect - nothing to remove, no
 behavior to work around.
 
-* Plain `dotnet build -c Release` (patch/README's own documented steps, no special flags) → patch applies fully standalone, zero ticket check, zero [License] log lines, no OC2XBOXPATCH_TICKET needed at all.
-* `dotnet build -c Release -p:RequireLicenseTicket=true` (only ever passed by this repo's build.sh --build-patch) → same source, but now correctly refuses to patch without a valid ticket.
+The two variants also get distinct output filenames (via the same `Condition` in
+`XboxControllerPatch.csproj`), so it's obvious at a glance which one ended up in a
+`BepInEx/patchers/` folder:
+
+* Plain `dotnet build -c Release` (patch/README's own documented steps, no special flags) → `MacOSXboxControllerPatchNoAuth.dll` - patch applies fully standalone, zero ticket check, zero [License] log lines, no OC2XBOXPATCH_TICKET needed at all.
+* `dotnet build -c Release -p:RequireLicenseTicket=true` (only ever passed by this repo's build.sh --build-patch) → `MacOSXboxControllerPatchAuth.dll` - same source, but now correctly refuses to patch without a valid ticket.
 
 ### Tests
 
@@ -207,14 +211,14 @@ dotnet test
 Copy built patcher into game patchers folder:
 
 ```bash
-cp XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatch.dll \
+cp XboxControllerPatch/bin/Release/net46/MacOSXboxControllerPatchNoAuth.dll \
   "<GameDir>/BepInEx/patchers/"
 ```
 
 Installed result:
 
 ```text
-<GameDir>/BepInEx/patchers/MacOSXboxControllerPatch.dll
+<GameDir>/BepInEx/patchers/MacOSXboxControllerPatchNoAuth.dll
 ```
 
 ## Enable Logging
@@ -276,7 +280,8 @@ Check logs for lines like:
 
 ### Patcher not loaded
 
-- Verify DLL path is exactly `<GameDir>/BepInEx/patchers/MacOSXboxControllerPatch.dll`.
+- Verify DLL path is exactly `<GameDir>/BepInEx/patchers/MacOSXboxControllerPatchNoAuth.dll` (or
+  `MacOSXboxControllerPatchAuth.dll` for a `-p:RequireLicenseTicket=true` build).
 - Confirm BepInEx preloader is active and no startup errors in BepInEx logs.
 
 ## Development Notes
