@@ -19,6 +19,16 @@ public static class Xbox360Patch
     // which is why the patch reported success but the controller still did
     // nothing in game.
     private const string ExistingAddedNameWithLeadingSpace = " Xbox Wireless Controller";
+    // macOS is inconsistent about whether it reports a Manufacturer prefix
+    // for this same physical device across reconnects - a later diagnostic
+    // run (same controller, same machine) reported "Microsoft Xbox Wireless
+    // Controller" (Manufacturer+" "+Product, no leading space) instead of the
+    // bare-Product " Xbox Wireless Controller" seen earlier. Covering both
+    // rather than assuming either is stable - confirmed live: with all three
+    // variants present, a real Xbox Wireless Controller registers as a known
+    // "XBox 360 Controller" device in InControl and produces working button/
+    // stick input in game, not just a clean patch log.
+    private const string ExistingAddedNameWithManufacturerPrefix = "Microsoft Xbox Wireless Controller";
 
     public static void Apply(AssemblyDefinition assembly)
     {
@@ -80,7 +90,7 @@ public static class Xbox360Patch
             }
 
             var arraySizeInstruction = instructions[newArrayIndex - 1];
-            SetLdcI4(arraySizeInstruction, 12);
+            SetLdcI4(arraySizeInstruction, 13);
 
             var joystickStoreInstruction = FindJoystickNameStore(instructions, newArrayIndex + 1);
             if (joystickStoreInstruction == null)
@@ -95,6 +105,7 @@ public static class Xbox360Patch
             InsertControllerName(il, joystickStoreInstruction, 9, "Microsoft GamePad-4");
             InsertControllerName(il, joystickStoreInstruction, 10, ExistingAddedName);
             InsertControllerName(il, joystickStoreInstruction, 11, ExistingAddedNameWithLeadingSpace);
+            InsertControllerName(il, joystickStoreInstruction, 12, ExistingAddedNameWithManufacturerPrefix);
 
             Log("Found JoystickNames array");
             Log("Added controller names");
