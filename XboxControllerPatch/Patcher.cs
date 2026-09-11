@@ -29,5 +29,6 @@ public static class Patcher
 
         Xbox360Patch.Apply(assembly);
         ControllerIconPatch.Apply(assembly);
+        NativeControllerPatch.Apply(assembly);
     }
 }

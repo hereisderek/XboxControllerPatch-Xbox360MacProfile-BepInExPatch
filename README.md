@@ -254,6 +254,37 @@ Check logs for lines like:
 [XboxPatch] Patch completed
 ```
 
+## Native controller input redirect
+
+`XboxControllerPatch/NativeControllerPatch.cs` (wired into `Patcher.cs` alongside `Xbox360Patch` and
+`ControllerIconPatch`) patches `InControl.UnityButtonSource.GetState`/`InControl.UnityAnalogSource.GetValue`
+to redirect through a native helper, `libOC2NativeXboxInput.dylib` (built from
+`native/xbox_gamecontroller.swift` via `native/build.sh`), whenever the active device is
+Xbox-recognized and the helper reports a controller connected - falling through to the original
+`Input.GetKey`/`GetAxisRaw` behavior otherwise. This exists because Unity's own native joystick
+polling on macOS mis-reads modern Xbox controllers' HID reports at the engine-binary level (not
+fixable by patching this DLL alone - see the parent repo's `patch-v2/TODO.md` for the Ghidra
+root-cause writeup); the dylib reads the controller via Apple's GameController framework instead.
+
+The dylib's absolute path is resolved fresh every `Patch()` call from this patcher DLL's own
+on-disk location (`Assembly.GetExecutingAssembly().Location`, walking up from
+`.../BepInEx/patchers/<this>.dll` to `.../BepInEx/`, then into `native/libOC2NativeXboxInput.dylib`)
+and baked into the in-memory Cecil patch as a full-path `ModuleReference` - never a bare
+`[DllImport("...")]` name, which this old embedded Mono's P/Invoke resolver doesn't search
+`Contents/Plugins/` or any other default location for. A missing dylib at that path is logged
+(`[XboxPatch] [Native] ...`) and skipped, not fatal - the rest of the patch still applies.
+
+**Known caveat:** "Xbox-recognized" (`inputDevice.Name.Contains("XBox")`) can't tell apart a
+device recognized via Steam Input's `Microsoft GamePad-N` rename (`Xbox360Patch.cs`) from one
+recognized via its real Bluetooth name - InControl overwrites both to the same profile name, so
+this redirect is attempted either way, not only when Steam Input is off. A real regression from
+this was found and fixed: `native/xbox_gamecontroller.swift`'s `GCController.controllers()` lookup
+wasn't filtering out a known inert macOS GameController-framework proxy device, which could make the
+redirect wrongly claim "connected" and silently override the Steam Input path it should have left
+alone, or misassign input across two real controllers. See `patch-v2/TODO.md`'s "unfiltered
+GCController.controllers()" entry and `patch-v2/native/README.md` for the full writeup and the fix
+(`isGenuineXboxController`, filtering by `vendorName`).
+
 ## Safety and Idempotence
 
 - Original `Overcooked2.app/.../Assembly-CSharp.dll` remains unchanged on disk.
