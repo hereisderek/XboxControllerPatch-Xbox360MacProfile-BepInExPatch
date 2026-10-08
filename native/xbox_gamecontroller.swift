@@ -38,8 +38,8 @@ import Foundation
 // native override for that device, which is the correct behavior (let the
 // caller fall through to Unity's own path instead of misrouting).
 //
-// Filters out anything whose vendorName doesn't look like a real Xbox
-// controller before indexing - GCController.controllers() isn't just the
+// Filters out anything that isn't a real, claimable gamepad (see
+// isClaimableController below) before indexing - GCController.controllers() isn't just the
 // physically-connected gamepads. Two known non-gamepad entries can show up
 // alongside them:
 //   1. The "inert macOS GameController-framework proxy device" (vid=0x045e
@@ -63,27 +63,58 @@ import Foundation
 //      fallen through to Unity's own Input.GetKey/GetAxisRaw path, which is
 //      what Steam Input actually needs (it already works through that path,
 //      same as before any of this native-redirect work existed).
-// A real Xbox controller reports a vendorName containing "Xbox" via
-// GameController framework (confirmed for both physical models tested in
-// this project - see ../TODO.md); neither the inert proxy nor Steam's
-// virtual device is expected to.
-private func isGenuineXboxController(_ controller: GCController) -> Bool {
-    guard let vendorName = controller.vendorName else { return false }
-    return vendorName.lowercased().contains("xbox")
+// Both of those report a vendorName containing "GamePad" ("GamePad-1" - the
+// same marker NativeControllerPatch.cs already uses to recognize Steam
+// Input), so that is what gets excluded; this used to be a positive "vendorName
+// contains xbox" match, which also dropped every non-Xbox controller. Any
+// other controller GameController exposes an extendedGamepad for is now
+// claimed (confirmed: a Switch Pro Controller reports "Pro Controller" with
+// a full extendedGamepad, and Apple maps its face buttons by position -
+// bottom = buttonA, right = buttonB - the same layout as Xbox). Whether the
+// game actually routes a given device here is still decided on the C# side
+// by its raw Unity name (Xbox360Patch.cs), not by this filter.
+private let virtualPadMarker = "gamepad"
+
+private func isClaimableController(_ controller: GCController) -> Bool {
+    guard controller.extendedGamepad != nil, let vendorName = controller.vendorName else { return false }
+    return !vendorName.lowercased().contains(virtualPadMarker)
 }
 
-private func gamepadForJoystick(_ joystickId: Int32) -> GCExtendedGamepad? {
+// joystickId is a position in Unity's full Input.GetJoystickNames() list
+// (InControl: joystickId = index + 1), which also holds entries this bridge
+// never claims: Steam's virtual "GamePad-N" pad, which shows up whenever Steam
+// is running and can sit on either side of the real controller, and empty
+// names for unplugged slots. Indexing the claimed GCControllers by joystickId
+// directly therefore lands on the wrong controller (or none) as soon as one
+// of those precedes the real one. The C# side passes the whole list
+// (joined with "\n"); counting only the claimable names before this
+// joystick gives the right index into the claimed controllers wherever the
+// other entries sit. Without a list (nil) it falls back to the plain
+// position, as before.
+private func isClaimableName(_ name: String) -> Bool {
+    let trimmed = name.trimmingCharacters(in: .whitespaces)
+    return !trimmed.isEmpty && !trimmed.lowercased().contains(virtualPadMarker)
+}
+
+private func gamepadForJoystick(_ joystickId: Int32, _ joystickNames: UnsafePointer<CChar>?) -> GCExtendedGamepad? {
     let gamepads = GCController.controllers()
-        .filter(isGenuineXboxController)
+        .filter(isClaimableController)
         .compactMap { $0.extendedGamepad }
-    let index = Int(joystickId) - 1
-    guard index >= 0 && index < gamepads.count else { return nil }
+    let position = Int(joystickId) - 1
+    guard position >= 0 else { return nil }
+    var index = position
+    if let joystickNames = joystickNames {
+        let names = String(cString: joystickNames).components(separatedBy: "\n")
+        guard position < names.count, isClaimableName(names[position]) else { return nil }
+        index = names[..<position].filter(isClaimableName).count
+    }
+    guard index < gamepads.count else { return nil }
     return gamepads[index]
 }
 
 @_cdecl("OC2Xbox_IsConnectedForJoystick")
-public func OC2Xbox_IsConnectedForJoystick(_ joystickId: Int32) -> Int32 {
-    return gamepadForJoystick(joystickId) != nil ? 1 : 0
+public func OC2Xbox_IsConnectedForJoystick(_ joystickId: Int32, _ joystickNames: UnsafePointer<CChar>?) -> Int32 {
+    return gamepadForJoystick(joystickId, joystickNames) != nil ? 1 : 0
 }
 
 // legacyIndex matches InControl's UnityInputDeviceProfile.ButtonN numbering
@@ -92,8 +123,8 @@ public func OC2Xbox_IsConnectedForJoystick(_ joystickId: Int32) -> Int32 {
 // GCExtendedGamepad - not every controller model exposes them - and read as
 // "not pressed" rather than crashing when absent.
 @_cdecl("OC2Xbox_GetButtonByLegacyIndexForJoystick")
-public func OC2Xbox_GetButtonByLegacyIndexForJoystick(_ joystickId: Int32, _ legacyIndex: Int32) -> Float {
-    guard let gamepad = gamepadForJoystick(joystickId) else { return 0 }
+public func OC2Xbox_GetButtonByLegacyIndexForJoystick(_ joystickId: Int32, _ joystickNames: UnsafePointer<CChar>?, _ legacyIndex: Int32) -> Float {
+    guard let gamepad = gamepadForJoystick(joystickId, joystickNames) else { return 0 }
     let pressed: Bool
     switch legacyIndex {
     case 16: pressed = gamepad.buttonA.isPressed
@@ -128,8 +159,8 @@ public func OC2Xbox_GetButtonByLegacyIndexForJoystick(_ joystickId: Int32, _ leg
 // expectation. GCControllerButtonInput.value (used for analog triggers) is
 // 0...1 and did test correctly, so triggers are left alone.
 @_cdecl("OC2Xbox_GetAxisByLegacyIndexForJoystick")
-public func OC2Xbox_GetAxisByLegacyIndexForJoystick(_ joystickId: Int32, _ legacyIndex: Int32) -> Float {
-    guard let gamepad = gamepadForJoystick(joystickId) else { return 0 }
+public func OC2Xbox_GetAxisByLegacyIndexForJoystick(_ joystickId: Int32, _ joystickNames: UnsafePointer<CChar>?, _ legacyIndex: Int32) -> Float {
+    guard let gamepad = gamepadForJoystick(joystickId, joystickNames) else { return 0 }
     switch legacyIndex {
     case 0: return gamepad.leftThumbstick.xAxis.value
     case 1: return -gamepad.leftThumbstick.yAxis.value

@@ -57,6 +57,9 @@ public static class NativeControllerPatch
     // Controller", " Xbox Wireless Controller", "Microsoft Xbox Wireless
     // Controller") - see that file for the full list.
     private const string SteamInputNameSubstring = "GamePad";
+    // Joins Input.GetJoystickNames() for the native side (see AddOrReuseNativeBridge);
+    // native/xbox_gamecontroller.swift splits on the same character.
+    private const string JoystickNamesSeparator = "\n";
     // Runtime "which path is actually in effect" logging (via UnityEngine.Debug.Log,
     // captured by BepInEx into LogOutput.log the same as any other Unity log line -
     // unlike this file's own Log() helper, which runs during the BepInEx preloader
@@ -255,6 +258,13 @@ public static class NativeControllerPatch
                 Log("OC2NativeXboxBridge present but missing an expected method - not reusing it");
                 return null;
             }
+            // A bridge left over from before the joystick-names argument existed
+            // would call the new dylib with the wrong signature.
+            if (reusedIsConnected.Parameters.Count != 2 || reusedGetButton.Parameters.Count != 3 || reusedGetAxis.Parameters.Count != 3)
+            {
+                Log("OC2NativeXboxBridge present but has an outdated signature - not reusing it");
+                return null;
+            }
             // Missing on a bridge type added before runtime path logging
             // existed - not fatal, just means that logging stays unavailable
             // this launch (see the Available check built from this in Apply()).
@@ -290,11 +300,18 @@ public static class NativeControllerPatch
 
         // Every entry point takes joystickId first (InControl's own
         // UnityInputDevice.JoystickId, 1-based) so the native side can pick
-        // the matching physical controller when more than one is connected.
+        // the matching physical controller when more than one is connected,
+        // then Unity's full Input.GetJoystickNames() list joined with
+        // JoystickNamesSeparator (marshaled as a plain UTF-8 char*) - joystickId
+        // is a position in that list, and the list also holds entries the
+        // native side never claims (Steam's virtual "GamePad-N" pad, empty
+        // slots), so the native side needs it to turn the position into an
+        // index among the controllers it does claim.
         var int32Type = module.TypeSystem.Int32;
-        var isConnected = MakePInvoke("OC2Xbox_IsConnectedForJoystick", int32Type, int32Type);
-        var getButton = MakePInvoke("OC2Xbox_GetButtonByLegacyIndexForJoystick", module.TypeSystem.Single, int32Type, int32Type);
-        var getAxis = MakePInvoke("OC2Xbox_GetAxisByLegacyIndexForJoystick", module.TypeSystem.Single, int32Type, int32Type);
+        var stringType = module.TypeSystem.String;
+        var isConnected = MakePInvoke("OC2Xbox_IsConnectedForJoystick", int32Type, int32Type, stringType);
+        var getButton = MakePInvoke("OC2Xbox_GetButtonByLegacyIndexForJoystick", module.TypeSystem.Single, int32Type, stringType, int32Type);
+        var getAxis = MakePInvoke("OC2Xbox_GetAxisByLegacyIndexForJoystick", module.TypeSystem.Single, int32Type, stringType, int32Type);
 
         // One log-line budget per joystick slot (0..LogBudgetSize-1), shared
         // between the button and analog source's runtime logging - see the
@@ -453,6 +470,11 @@ public static class NativeControllerPatch
         var stringArrayType = new ArrayType(stringType);
         var stringContains = new MethodReference("Contains", boolType, stringType) { HasThis = true };
         stringContains.Parameters.Add(new ParameterDefinition(stringType));
+        // string.Join("\n", rawNames) - the whole joystick list goes to the native
+        // side so it can number slots the same way Unity does (see JoystickNamesSeparator).
+        var stringJoin = new MethodReference("Join", stringType, stringType);
+        stringJoin.Parameters.Add(new ParameterDefinition(stringType));
+        stringJoin.Parameters.Add(new ParameterDefinition(stringArrayType));
 
         var body = method.Body;
         var il = body.GetILProcessor();
@@ -468,6 +490,8 @@ public static class NativeControllerPatch
         body.Variables.Add(rawIndexVar);
         var rawNameVar = new VariableDefinition(stringType);
         body.Variables.Add(rawNameVar);
+        var joinedNamesVar = new VariableDefinition(stringType);
+        body.Variables.Add(joinedNamesVar);
         body.InitLocals = true;
 
         void Insert(Instruction instruction) => il.InsertBefore(originalStart, instruction);
@@ -556,7 +580,7 @@ public static class NativeControllerPatch
         // method already uses for originalStart, just for a fresh
         // instruction instead of an existing one) - physically inserted
         // further down, right where the native-path checks actually begin.
-        var nativePathStart = Instruction.Create(OpCodes.Ldloc, joystickIdVar);
+        var nativePathStart = Instruction.Create(OpCodes.Ldstr, JoystickNamesSeparator);
         Insert(Instruction.Create(OpCodes.Ldloc, isSteamInputVar));
         Insert(Instruction.Create(OpCodes.Brfalse, nativePathStart));
 
@@ -589,7 +613,14 @@ public static class NativeControllerPatch
         }
 
         // Native/raw-Bluetooth path.
-        Insert(nativePathStart); // == "Ldloc joystickIdVar", the first half of the IsConnectedForJoystick call below
+        // var joined = string.Join("\n", rawNames);
+        Insert(nativePathStart); // == Ldstr "\n"
+        Insert(Instruction.Create(OpCodes.Ldloc, rawNamesVar));
+        Insert(Instruction.Create(OpCodes.Call, stringJoin));
+        Insert(Instruction.Create(OpCodes.Stloc, joinedNamesVar));
+        // if (OC2Xbox_IsConnectedForJoystick(joystickId, joined) == 0) goto originalStart;
+        Insert(Instruction.Create(OpCodes.Ldloc, joystickIdVar));
+        Insert(Instruction.Create(OpCodes.Ldloc, joinedNamesVar));
         Insert(Instruction.Create(OpCodes.Call, isConnected));
         Insert(Instruction.Create(OpCodes.Brfalse, originalStart));
 
@@ -602,6 +633,8 @@ public static class NativeControllerPatch
                 " (Steam Input is off or not managing this device)");
         }
 
+        // tail = (joystickId, joined, <legacy index>) -> the Get{Button,Axis}ByLegacyIndex call
+        Insert(Instruction.Create(OpCodes.Ldloc, joinedNamesVar));
         foreach (var instruction in makeTail(il))
         {
             Insert(instruction);

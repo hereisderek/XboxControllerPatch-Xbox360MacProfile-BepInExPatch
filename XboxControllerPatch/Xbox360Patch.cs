@@ -30,6 +30,22 @@ public static class Xbox360Patch
     // stick input in game, not just a clean patch log.
     private const string ExistingAddedNameWithManufacturerPrefix = "Microsoft Xbox Wireless Controller";
 
+    // Nintendo Switch Pro Controller (USB vid 0x057e pid 0x2009), also what
+    // third-party pads present in their Switch mode. Same Manufacturer+" "+
+    // Product rule as above, read off IOHID by controller-probe.swift
+    // (manufacturer "Nintendo Co., Ltd.", product "Pro Controller"); the other
+    // two cover the empty-manufacturer (leading space) and bare-product
+    // variants, since macOS isn't consistent about that. Adding another
+    // controller that GameController exposes as an extended gamepad is just
+    // another name here - no button mapping, that comes from the framework
+    // (see native/xbox_gamecontroller.swift).
+    private static readonly string[] ProControllerNames =
+    {
+        "Nintendo Co., Ltd. Pro Controller",
+        " Pro Controller",
+        "Pro Controller"
+    };
+
     public static void Apply(AssemblyDefinition assembly)
     {
         try
@@ -90,7 +106,8 @@ public static class Xbox360Patch
             }
 
             var arraySizeInstruction = instructions[newArrayIndex - 1];
-            SetLdcI4(arraySizeInstruction, 13);
+            const int baseNameCount = 13; // original 6 + the 7 added below
+            SetLdcI4(arraySizeInstruction, baseNameCount + ProControllerNames.Length);
 
             var joystickStoreInstruction = FindJoystickNameStore(instructions, newArrayIndex + 1);
             if (joystickStoreInstruction == null)
@@ -106,6 +123,10 @@ public static class Xbox360Patch
             InsertControllerName(il, joystickStoreInstruction, 10, ExistingAddedName);
             InsertControllerName(il, joystickStoreInstruction, 11, ExistingAddedNameWithLeadingSpace);
             InsertControllerName(il, joystickStoreInstruction, 12, ExistingAddedNameWithManufacturerPrefix);
+            for (var i = 0; i < ProControllerNames.Length; i++)
+            {
+                InsertControllerName(il, joystickStoreInstruction, baseNameCount + i, ProControllerNames[i]);
+            }
 
             Log("Found JoystickNames array");
             Log("Added controller names");
