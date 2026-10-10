@@ -65,10 +65,13 @@ Three independent patches, all applied by the same preloader entry point at laun
 
 1. **Controller name recognition** (`Xbox360Patch.cs`): Overcooked! 2 includes a hardcoded
    `JoystickNames` list in `InControl.Xbox360MacProfile` with no entries any real macOS device or
-   Steam Input's virtual device ever reports. This patcher grows that list from 6 entries to 13,
-   appending real Xbox Wireless Controller Bluetooth-name variants *and* the `Microsoft GamePad-N`
-   names Steam Input's virtual device reports - so the game recognizes an Xbox controller as one,
-   whether or not Steam Input is enabled.
+   Steam Input's virtual device ever reports. This patcher grows that list from 6 entries to 18,
+   appending real Xbox Wireless Controller Bluetooth-name variants, the `Microsoft GamePad-N`
+   names Steam Input's virtual device reports, the Switch Pro Controller names, and the USB
+   DualShock 4 names - so the game recognizes those controllers as an Xbox one, whether or not
+   Steam Input is enabled. The DualShock 4 names are also in the game's own
+   `PlayStation4MacUSBProfile`, which InControl would pick first (profiles are tried in
+   alphabetical order), so the patcher changes them there to strings no controller reports.
 2. **Icon fixes** (`ControllerIconPatch.cs`): three separate places hardcode PS4 icons regardless
    of what's actually connected (HUD button prompts, the lobby controller graphic, the Controller
    Options screen) - patched to show Xbox icons when a recognized Xbox device is active.
@@ -93,6 +96,8 @@ Three independent patches, all applied by the same preloader entry point at laun
   3. Find preceding `newarr System.String`.
   4. Change the array size to fit the new entries.
   5. Insert IL to append the new names before `stfld JoystickNames`.
+  6. Replace the DualShock 4 name constants in `InControl.PlayStation4MacUSBProfile`'s constructor
+     so that profile no longer matches them (`MoveDualShockNamesOffPlayStationProfile`).
 - `ControllerIconPatch.cs` and `NativeControllerPatch.cs` each patch different target
   methods/types directly (see their own file-header comments for specifics) rather than growing
   an existing array - see "Native controller input redirect" below for that patch's mechanism in

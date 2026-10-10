@@ -46,6 +46,63 @@ public static class Xbox360Patch
         "Pro Controller"
     };
 
+    private const string XboxProfileTypeName = "InControl.Xbox360MacProfile";
+    // The launcher app lists the Unity names of every pad GameController claims at launch (one per line), so the patch
+    // recognises pads by what macOS says they are, not by a list of makers. See ControllerNames in swift/.
+    private const string PadNamesEnvVar = "OC2XBOXPATCH_PAD_NAMES";
+    private const int MaxPadNames = 64;
+
+    // Sony DualShock 4 over USB (Manufacturer+" "+Product as read off IOHID; the older vendor string is for older
+    // hardware). The game's own InControl.PlayStation4MacUSBProfile already lists both, and InControl uses the first
+    // profile whose names match, in the alphabetical order of UnityInputDeviceProfileList: the PS4 profile comes
+    // before Xbox360MacProfile and would keep the pad on Unity's raw HID path, which is the path that gets nothing
+    // from a controller macOS GameController has claimed. So the names are added here and taken off the PS4 profile
+    // (MoveNamesOffOtherProfiles). The pad then goes through the native bridge like the others and, as
+    // with the Switch Pro Controller, shows Xbox button icons.
+    private static readonly string[] DualShockNames =
+    {
+        "Sony Interactive Entertainment Wireless Controller",
+        "Sony Computer Entertainment Wireless Controller"
+    };
+
+    // Flydigi Direwolf 3 over USB: an Xbox 360-class (XInput) pad, which macOS's own XboxGamepad driver exposes as HID
+    // and GameController as "Flydigi Direwolf 3" with an extended gamepad. Manufacturer+" "+Product reads "Flydigi
+    // Flydigi Direwolf 3" because the product string already starts with the brand; the other two are the usual
+    // empty-manufacturer and bare-product variants. No game profile claims any of them (checked), so without these the
+    // game sees an unknown controller.
+    private static readonly string[] FlydigiNames =
+    {
+        "Flydigi Flydigi Direwolf 3",
+        " Flydigi Direwolf 3",
+        "Flydigi Direwolf 3"
+    };
+
+    // Everything appended after the 13 base names, in order: the fixed lists above (kept for runs without the launcher
+    // app), then the names the launcher passed for the pads connected right now.
+    private static string[] ExtraNames()
+    {
+        var all = new List<string>();
+        all.AddRange(ProControllerNames);
+        all.AddRange(DualShockNames);
+        all.AddRange(FlydigiNames);
+        var passed = Environment.GetEnvironmentVariable(PadNamesEnvVar);
+        if (!string.IsNullOrEmpty(passed))
+        {
+            foreach (var line in passed.Split('\n'))
+            {
+                var name = line.TrimEnd('\r');
+                if (name.Length == 0 || name.Length > 200 || name.IndexOf("GamePad", StringComparison.OrdinalIgnoreCase) >= 0 || all.Contains(name) || all.Count >= MaxPadNames)
+                {
+                    continue;
+                }
+
+                all.Add(name);
+            }
+        }
+
+        return all.ToArray();
+    }
+
     public static void Apply(AssemblyDefinition assembly)
     {
         try
@@ -107,7 +164,8 @@ public static class Xbox360Patch
 
             var arraySizeInstruction = instructions[newArrayIndex - 1];
             const int baseNameCount = 13; // original 6 + the 7 added below
-            SetLdcI4(arraySizeInstruction, baseNameCount + ProControllerNames.Length);
+            var extraNames = ExtraNames();
+            SetLdcI4(arraySizeInstruction, baseNameCount + extraNames.Length);
 
             var joystickStoreInstruction = FindJoystickNameStore(instructions, newArrayIndex + 1);
             if (joystickStoreInstruction == null)
@@ -123,19 +181,73 @@ public static class Xbox360Patch
             InsertControllerName(il, joystickStoreInstruction, 10, ExistingAddedName);
             InsertControllerName(il, joystickStoreInstruction, 11, ExistingAddedNameWithLeadingSpace);
             InsertControllerName(il, joystickStoreInstruction, 12, ExistingAddedNameWithManufacturerPrefix);
-            for (var i = 0; i < ProControllerNames.Length; i++)
+            for (var i = 0; i < extraNames.Length; i++)
             {
-                InsertControllerName(il, joystickStoreInstruction, baseNameCount + i, ProControllerNames[i]);
+                InsertControllerName(il, joystickStoreInstruction, baseNameCount + i, extraNames[i]);
             }
 
             Log("Found JoystickNames array");
             Log("Added controller names");
+            MoveNamesOffOtherProfiles(assembly, extraNames);
             Log("Patch completed");
         }
         catch (Exception ex)
         {
             Log("Patch failed: " + ex);
         }
+    }
+
+    // InControl uses the FIRST profile (alphabetical order) that lists a name, so a name the game's own profiles
+    // already list (the DualShock 4's, in InControl.PlayStation4MacUSBProfile) would never reach the Xbox profile. Each
+    // of the names added above is made unmatchable everywhere else by changing that string constant in the other
+    // profiles' constructors to one no controller reports. A name nothing else lists is left alone; if no profile
+    // lists it nothing changes at all.
+    private static void MoveNamesOffOtherProfiles(AssemblyDefinition assembly, string[] names)
+    {
+        var moved = 0;
+        foreach (var type in assembly.MainModule.Types)
+        {
+            if (type.Namespace != "InControl" || type.FullName == XboxProfileTypeName)
+            {
+                continue;
+            }
+
+            foreach (var method in type.Methods)
+            {
+                if (!method.IsConstructor || method.IsStatic || !method.HasBody)
+                {
+                    continue;
+                }
+
+                foreach (var instruction in method.Body.Instructions)
+                {
+                    var name = instruction.OpCode == OpCodes.Ldstr ? instruction.Operand as string : null;
+                    if (name == null || !IsAddedName(names, name))
+                    {
+                        continue;
+                    }
+
+                    instruction.Operand = "(moved to Xbox360MacProfile) " + name;
+                    moved++;
+                    Log("Moved \"" + name + "\" off " + type.FullName);
+                }
+            }
+        }
+
+        Log("Moved " + moved + " name(s) off other profiles");
+    }
+
+    private static bool IsAddedName(string[] names, string name)
+    {
+        foreach (var known in names)
+        {
+            if (known == name)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Hand-rolled instead of System.Linq (FirstOrDefault/Any): those take a
