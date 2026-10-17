@@ -228,6 +228,7 @@ public static class NativeControllerPatch
         public MethodReference IsConnected;
         public MethodReference GetButton;
         public MethodReference GetAxis;
+        public MethodReference HasPhysical;
         public FieldReference LogBudgetField;
     }
 
@@ -253,14 +254,15 @@ public static class NativeControllerPatch
             var reusedIsConnected = FindMethodByName(existing.Methods, "OC2Xbox_IsConnectedForJoystick");
             var reusedGetButton = FindMethodByName(existing.Methods, "OC2Xbox_GetButtonByLegacyIndexForJoystick");
             var reusedGetAxis = FindMethodByName(existing.Methods, "OC2Xbox_GetAxisByLegacyIndexForJoystick");
-            if (reusedIsConnected == null || reusedGetButton == null || reusedGetAxis == null)
+            var reusedHasPhysical = FindMethodByName(existing.Methods, "OC2Xbox_HasPhysicalControllers");
+            if (reusedIsConnected == null || reusedGetButton == null || reusedGetAxis == null || reusedHasPhysical == null)
             {
                 Log("OC2NativeXboxBridge present but missing an expected method - not reusing it");
                 return null;
             }
             // A bridge left over from before the joystick-names argument existed
             // would call the new dylib with the wrong signature.
-            if (reusedIsConnected.Parameters.Count != 2 || reusedGetButton.Parameters.Count != 3 || reusedGetAxis.Parameters.Count != 3)
+            if (reusedIsConnected.Parameters.Count != 2 || reusedGetButton.Parameters.Count != 3 || reusedGetAxis.Parameters.Count != 3 || reusedHasPhysical.Parameters.Count != 1)
             {
                 Log("OC2NativeXboxBridge present but has an outdated signature - not reusing it");
                 return null;
@@ -269,7 +271,7 @@ public static class NativeControllerPatch
             // existed - not fatal, just means that logging stays unavailable
             // this launch (see the Available check built from this in Apply()).
             var reusedLogBudgetField = FindFieldByName(existing.Fields, LogBudgetFieldName);
-            return new Bridge { IsConnected = reusedIsConnected, GetButton = reusedGetButton, GetAxis = reusedGetAxis, LogBudgetField = reusedLogBudgetField };
+            return new Bridge { IsConnected = reusedIsConnected, GetButton = reusedGetButton, GetAxis = reusedGetAxis, HasPhysical = reusedHasPhysical, LogBudgetField = reusedLogBudgetField };
         }
 
         var moduleRef = new ModuleReference(dylibPath);
@@ -312,6 +314,7 @@ public static class NativeControllerPatch
         var isConnected = MakePInvoke("OC2Xbox_IsConnectedForJoystick", int32Type, int32Type, stringType);
         var getButton = MakePInvoke("OC2Xbox_GetButtonByLegacyIndexForJoystick", module.TypeSystem.Single, int32Type, stringType, int32Type);
         var getAxis = MakePInvoke("OC2Xbox_GetAxisByLegacyIndexForJoystick", module.TypeSystem.Single, int32Type, stringType, int32Type);
+        var hasPhysical = MakePInvoke("OC2Xbox_HasPhysicalControllers", int32Type, stringType);
 
         // One log-line budget per joystick slot (0..LogBudgetSize-1), shared
         // between the button and analog source's runtime logging - see the
@@ -335,7 +338,7 @@ public static class NativeControllerPatch
         bridgeType.Methods.Add(cctor);
 
         Log("Added OC2NativeXboxBridge P/Invoke declarations targeting: " + dylibPath);
-        return new Bridge { IsConnected = isConnected, GetButton = getButton, GetAxis = getAxis, LogBudgetField = logBudgetField };
+        return new Bridge { IsConnected = isConnected, GetButton = getButton, GetAxis = getAxis, HasPhysical = hasPhysical, LogBudgetField = logBudgetField };
     }
 
     private static bool PatchButtonSource(
@@ -369,9 +372,9 @@ public static class NativeControllerPatch
             return false;
         }
 
-        InsertRedirect(module, method, inputDeviceType, unityInputDeviceType, getName, getJoystickId, getJoystickNames, bridge.IsConnected, runtimeLog, il =>
+        InsertRedirect(module, method, inputDeviceType, unityInputDeviceType, getName, getJoystickId, getJoystickNames, bridge, runtimeLog, il =>
         {
-            // return OC2NativeXboxBridge.OC2Xbox_GetButtonByLegacyIndexForJoystick(joystickId, this.ButtonId) != 0f;
+            // return OC2NativeXboxBridge.OC2Xbox_GetButtonByLegacyIndexForJoystick(joystickId, joined, this.ButtonId) != 0f;
             return new[]
             {
                 Instruction.Create(OpCodes.Ldarg_0),
@@ -381,6 +384,14 @@ public static class NativeControllerPatch
                 Instruction.Create(OpCodes.Ceq),
                 Instruction.Create(OpCodes.Ldc_I4_0),
                 Instruction.Create(OpCodes.Ceq),
+                Instruction.Create(OpCodes.Ret),
+            };
+        }, il =>
+        {
+            // return false; (suppress duplicate phantom GamePad button input)
+            return new[]
+            {
+                Instruction.Create(OpCodes.Ldc_I4_0),
                 Instruction.Create(OpCodes.Ret),
             };
         });
@@ -420,14 +431,22 @@ public static class NativeControllerPatch
             return false;
         }
 
-        InsertRedirect(module, method, inputDeviceType, unityInputDeviceType, getName, getJoystickId, getJoystickNames, bridge.IsConnected, runtimeLog, il =>
+        InsertRedirect(module, method, inputDeviceType, unityInputDeviceType, getName, getJoystickId, getJoystickNames, bridge, runtimeLog, il =>
         {
-            // return OC2NativeXboxBridge.OC2Xbox_GetAxisByLegacyIndexForJoystick(joystickId, this.AnalogId);
+            // return OC2NativeXboxBridge.OC2Xbox_GetAxisByLegacyIndexForJoystick(joystickId, joined, this.AnalogId);
             return new[]
             {
                 Instruction.Create(OpCodes.Ldarg_0),
                 Instruction.Create(OpCodes.Ldfld, analogIdField),
                 Instruction.Create(OpCodes.Call, bridge.GetAxis),
+                Instruction.Create(OpCodes.Ret),
+            };
+        }, il =>
+        {
+            // return 0.0f; (suppress duplicate phantom GamePad analog input)
+            return new[]
+            {
+                Instruction.Create(OpCodes.Ldc_R4, 0f),
                 Instruction.Create(OpCodes.Ret),
             };
         });
@@ -458,9 +477,10 @@ public static class NativeControllerPatch
         MethodDefinition getName,
         MethodDefinition getJoystickId,
         MethodReference getJoystickNames,
-        MethodReference isConnected,
+        Bridge bridge,
         RuntimeLogRefs runtimeLog,
-        TailBuilder makeTail)
+        TailBuilder makeTail,
+        TailBuilder makeSuppress)
     {
         var stringType = module.TypeSystem.String;
         var boolType = module.TypeSystem.Boolean;
@@ -566,6 +586,12 @@ public static class NativeControllerPatch
         Insert(Instruction.Create(OpCodes.Stloc, rawNameVar));
         Insert(Instruction.Create(OpCodes.Brfalse, originalStart));
 
+        // var joined = string.Join("\n", rawNames);
+        Insert(Instruction.Create(OpCodes.Ldstr, JoystickNamesSeparator));
+        Insert(Instruction.Create(OpCodes.Ldloc, rawNamesVar));
+        Insert(Instruction.Create(OpCodes.Call, stringJoin));
+        Insert(Instruction.Create(OpCodes.Stloc, joinedNamesVar));
+
         // bool isSteamInput = rawName.Contains("GamePad"); (Steam Input's own
         // marker - Xbox360Patch.cs's "Microsoft GamePad-N" entries)
         var isSteamInputVar = new VariableDefinition(boolType);
@@ -575,34 +601,44 @@ public static class NativeControllerPatch
         Insert(Instruction.Create(OpCodes.Callvirt, stringContains));
         Insert(Instruction.Create(OpCodes.Stloc, isSteamInputVar));
 
-        // nativePathStart isn't inserted yet (created here so it can be used
-        // as this branch's target - the same forward-reference pattern this
-        // method already uses for originalStart, just for a fresh
-        // instruction instead of an existing one) - physically inserted
-        // further down, right where the native-path checks actually begin.
-        var nativePathStart = Instruction.Create(OpCodes.Ldstr, JoystickNamesSeparator);
+        // If not Steam Input, branch to native/raw-Bluetooth path.
+        var nativePathStart = Instruction.Create(OpCodes.Ldloc, joystickIdVar);
         Insert(Instruction.Create(OpCodes.Ldloc, isSteamInputVar));
         Insert(Instruction.Create(OpCodes.Brfalse, nativePathStart));
 
-        // Steam Input's own path - let it handle this device untouched.
-        // EmitBudgetedLog's own internal bounds/budget checks must skip
-        // forward only to THIS branch (the very next instruction after the
-        // log block), never all the way to originalStart - that was a real
-        // bug caught by decompiling the patched output before ever shipping
-        // it (see EmitBudgetedLog's own comment): passing originalStart as
-        // the skip target there made a budget-exhausted call skip the actual
-        // redirect/return below it too, not just the logging, silently
-        // breaking native input after LogBudgetLimit frames.
-        //
-        // branchToOriginalStart/tailStart below must be physically inserted
-        // into the body (via Insert()) BEFORE being passed to EmitBudgetedLog
-        // as its target - Cecil's ILProcessor.InsertBefore requires its
-        // target to already be part of the method body's instruction list
-        // (it throws ArgumentOutOfRangeException otherwise, caught live
-        // here); EmitBudgetedLog's own repeated InsertBefore(target, ...)
-        // calls then correctly build the log block immediately in front of
-        // wherever that target currently sits, same as every other prologue
-        // instruction in this method being built up in front of originalStart.
+        // Steam Input disambiguation & duplicate phantom controller suppression:
+        // When rawName contains "GamePad", check whether physical controllers are also present.
+        // If physical controllers are active on the system (e.g. "Xbox Wireless Controller"),
+        // this virtual "GamePad" slot is a duplicate proxy created by Steam / macOS.
+        // Letting it through causes dual-input lockstep (spawning 2 chefs).
+        // Therefore, when physical controllers are present, suppress this virtual slot.
+        // When NO physical controllers are present, pure Steam Input is active; let it handle it untouched.
+
+        // if (OC2Xbox_HasPhysicalControllers(joined) == 0) goto steamInputTarget;
+        var steamInputTarget = Instruction.Create(OpCodes.Nop);
+        Insert(Instruction.Create(OpCodes.Ldloc, joinedNamesVar));
+        Insert(Instruction.Create(OpCodes.Call, bridge.HasPhysical));
+        Insert(Instruction.Create(OpCodes.Brfalse, steamInputTarget));
+
+        // Suppress path (HasPhysical != 0): return false / 0.0f
+        var suppressTarget = Instruction.Create(OpCodes.Nop);
+        Insert(suppressTarget);
+        var suppressInstructions = makeSuppress(il);
+        var suppressStart = suppressInstructions[0];
+        Insert(suppressStart);
+        if (runtimeLog.Available)
+        {
+            EmitBudgetedLog(il, suppressStart, rawIndexVar, joystickIdVar, module.TypeSystem.Int32, runtimeLog,
+                "[XboxPatch] [Native] Phantom virtual GamePad suppressed for joystick ",
+                " (physical controller is present; duplicate input silenced)");
+        }
+        for (int i = 1; i < suppressInstructions.Length; i++)
+        {
+            Insert(suppressInstructions[i]);
+        }
+
+        // Steam Input's own path (HasPhysical == 0) - let Unity handle it untouched.
+        Insert(steamInputTarget);
         var branchToOriginalStart = Instruction.Create(OpCodes.Br, originalStart);
         Insert(branchToOriginalStart);
         if (runtimeLog.Available)
@@ -612,16 +648,11 @@ public static class NativeControllerPatch
                 " - native redirect intentionally skipped (raw joystick name matched Steam Input's rename); letting Unity's own Input.GetKey/GetAxisRaw handle it");
         }
 
-        // Native/raw-Bluetooth path.
-        // var joined = string.Join("\n", rawNames);
-        Insert(nativePathStart); // == Ldstr "\n"
-        Insert(Instruction.Create(OpCodes.Ldloc, rawNamesVar));
-        Insert(Instruction.Create(OpCodes.Call, stringJoin));
-        Insert(Instruction.Create(OpCodes.Stloc, joinedNamesVar));
+        // Native/raw-Bluetooth path (branched here via nativePathStart).
         // if (OC2Xbox_IsConnectedForJoystick(joystickId, joined) == 0) goto originalStart;
-        Insert(Instruction.Create(OpCodes.Ldloc, joystickIdVar));
+        Insert(nativePathStart);
         Insert(Instruction.Create(OpCodes.Ldloc, joinedNamesVar));
-        Insert(Instruction.Create(OpCodes.Call, isConnected));
+        Insert(Instruction.Create(OpCodes.Call, bridge.IsConnected));
         Insert(Instruction.Create(OpCodes.Brfalse, originalStart));
 
         var tailStart = Instruction.Create(OpCodes.Ldloc, joystickIdVar);

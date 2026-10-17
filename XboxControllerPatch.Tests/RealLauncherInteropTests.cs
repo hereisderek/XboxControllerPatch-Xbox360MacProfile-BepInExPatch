@@ -86,9 +86,7 @@ print(ProcessInfo.processInfo.environment[AuthTicket.environmentVariableName]!)
         var compileArgs = new[]
         {
             "-O",
-            Path.Combine(swiftDir, "Base32.swift"),
             Path.Combine(swiftDir, "Fingerprint.swift"),
-            Path.Combine(swiftDir, "SerialFormat.swift"),
             Path.Combine(swiftDir, "AuthTicket.swift"),
             mainSwiftPath,
             "-o", binPath,

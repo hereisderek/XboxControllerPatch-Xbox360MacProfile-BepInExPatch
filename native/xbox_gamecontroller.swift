@@ -339,6 +339,15 @@ public func OC2Xbox_IsConnectedForJoystick(_ joystickId: Int32, _ joystickNames:
     return padForJoystick(joystickId, joystickNames) != nil ? 1 : 0
 }
 
+@_cdecl("OC2Xbox_HasPhysicalControllers")
+public func OC2Xbox_HasPhysicalControllers(_ joystickNames: UnsafePointer<CChar>?) -> Int32 {
+    guard let joystickNames = joystickNames else { return 0 }
+    let unity = String(cString: joystickNames).components(separatedBy: "\n")
+    guard unity.contains(where: isClaimableName) else { return 0 }
+    let p = currentPairing(joystickNames)
+    return !p.pads.isEmpty ? 1 : 0
+}
+
 // legacyIndex matches InControl's UnityInputDeviceProfile.ButtonN numbering
 // as used directly by Xbox360MacProfile's ButtonMappings table. Some
 // properties (buttonOptions, thumbstick click buttons) are optional on

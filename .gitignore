@@ -14,3 +14,4 @@ XboxControllerPatch/lib/*.dll
 .DS_Store
 Overcooked2.app
 XboxControllerPatch/Library
+native/*.dylib
